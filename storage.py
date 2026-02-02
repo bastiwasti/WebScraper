@@ -17,7 +17,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection | None = None) -> None:
-    """Create events table if it does not exist."""
+    """Create events and raw_summaries tables if they do not exist."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
@@ -30,6 +30,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 location TEXT,
                 date TEXT,
                 time TEXT,
+                category TEXT,
                 source TEXT,
                 created_at TEXT NOT NULL
             )
@@ -37,6 +38,26 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_events_created_at
             ON events(created_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_events_category
+            ON events(category)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS raw_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                location TEXT,
+                max_search INTEGER,
+                fetch_urls INTEGER,
+                cities TEXT,
+                search_queries TEXT,
+                raw_summary TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_raw_summaries_created_at
+            ON raw_summaries(created_at)
         """)
         conn.commit()
     finally:
@@ -62,8 +83,8 @@ def insert_events(events: list[dict[str, Any]], conn: sqlite3.Connection | None 
                 continue
             conn.execute(
                 """
-                INSERT INTO events (name, description, location, date, time, source, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO events (name, description, location, date, time, category, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -71,6 +92,7 @@ def insert_events(events: list[dict[str, Any]], conn: sqlite3.Connection | None 
                     (e.get("location") or "").strip(),
                     (e.get("date") or "").strip(),
                     (e.get("time") or "").strip(),
+                    (e.get("category") or "other").strip(),
                     (e.get("source") or "").strip(),
                     now,
                 ),
@@ -101,7 +123,7 @@ def get_events(
             # SQLite: date(created_at) >= date('now', '-N days')
             cur = conn.execute(
                 """
-                SELECT id, name, description, location, date, time, source, created_at
+                SELECT id, name, description, location, date, time, category, source, created_at
                 FROM events
                 WHERE date(created_at) >= date('now', ?)
                 ORDER BY created_at DESC
@@ -112,7 +134,7 @@ def get_events(
         else:
             cur = conn.execute(
                 """
-                SELECT id, name, description, location, date, time, source, created_at
+                SELECT id, name, description, location, date, time, category, source, created_at
                 FROM events
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -128,6 +150,7 @@ def get_events(
                 "location": r["location"] or "",
                 "date": r["date"] or "",
                 "time": r["time"] or "",
+                "category": r["category"] or "other",
                 "source": r["source"] or "",
                 "created_at": r["created_at"],
             }
@@ -139,12 +162,132 @@ def get_events(
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    """Convert DB row to dict for writer (name, description, location, date, time, source)."""
+    """Convert DB row to dict for writer (name, description, location, date, time, category, source)."""
     return {
         "name": row["name"],
         "description": row["description"] or "",
         "location": row["location"] or "",
         "date": row["date"] or "",
         "time": row["time"] or "",
+        "category": row["category"] or "other",
         "source": row["source"] or "",
     }
+
+
+def insert_raw_summary(
+    location: str,
+    max_search: int,
+    fetch_urls: int,
+    raw_summary: str,
+    conn: sqlite3.Connection | None = None,
+    cities: list[str] | None = None,
+    search_queries: list[str] | None = None,
+) -> int:
+    """Store raw summary for debugging. Returns inserted row ID."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        now = datetime.utcnow().isoformat() + "Z"
+        import json
+        cities_json = json.dumps(cities) if cities else None
+        queries_json = json.dumps(search_queries) if search_queries else None
+        cur = conn.execute(
+            """
+            INSERT INTO raw_summaries (location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (location or "", max_search, fetch_urls, cities_json, queries_json, raw_summary, now),
+        )
+        conn.commit()
+        return cur.lastrowid or 0
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_raw_summaries(
+    location: str | None = None,
+    limit: int = 10,
+    conn: sqlite3.Connection | None = None,
+) -> list[dict[str, Any]]:
+    """Retrieve raw summaries for debugging."""
+    import json
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        if location:
+            cur = conn.execute(
+                """
+                SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
+                FROM raw_summaries
+                WHERE location = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (location, limit),
+            )
+        else:
+            cur = conn.execute(
+                """
+                SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
+                FROM raw_summaries
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "location": r["location"] or "",
+                "max_search": r["max_search"],
+                "fetch_urls": r["fetch_urls"],
+                "cities": json.loads(r["cities"]) if r["cities"] else None,
+                "search_queries": json.loads(r["search_queries"]) if r["search_queries"] else None,
+                "raw_summary": r["raw_summary"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_raw_summary_by_id(summary_id: int, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+    """Get a single raw summary by ID."""
+    import json
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        cur = conn.execute(
+            """
+            SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
+            FROM raw_summaries
+            WHERE id = ?
+            """,
+            (summary_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return {
+                "id": row["id"],
+                "location": row["location"] or "",
+                "max_search": row["max_search"],
+                "fetch_urls": row["fetch_urls"],
+                "cities": json.loads(row["cities"]) if row["cities"] else None,
+                "search_queries": json.loads(row["search_queries"]) if row["search_queries"] else None,
+                "raw_summary": row["raw_summary"],
+                "created_at": row["created_at"],
+            }
+        return None
+    finally:
+        if own_conn:
+            conn.close()
