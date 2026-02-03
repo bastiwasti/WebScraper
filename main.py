@@ -6,7 +6,8 @@ from pathlib import Path
 
 import requests
 
-from config import DEFAULT_LOCATION, LLM_MODEL, OLLAMA_BASE_URL, LLM_PROVIDER, ZAI_MODEL, XAI_MODEL, GROQ_MODEL, DEEPSEEK_MODEL
+from config import DEFAULT_LOCATION, LLM_MODEL, OLLAMA_BASE_URL, LLM_PROVIDER, DEEPSEEK_MODEL
+from storage import get_runs
 from pipeline import run_pipeline
 
 
@@ -21,7 +22,7 @@ def check_ollama(base_url: str = OLLAMA_BASE_URL) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="WeeklyMail: Scrape local events -> structure -> generate email-ready document."
+        description="WeeklyMail: Scrape local events -> structure for display.",
     )
     parser.add_argument(
         "--location",
@@ -59,15 +60,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         "-m",
-        default=DEEPSEEK_MODEL if LLM_PROVIDER == "deepseek" else GROQ_MODEL if LLM_PROVIDER == "groq" else ZAI_MODEL if LLM_PROVIDER == "zai" else XAI_MODEL if LLM_PROVIDER == "xai" else LLM_MODEL,
-        help=f"Model name (default depends on provider: ollama={LLM_MODEL}, xai={XAI_MODEL}, zai={ZAI_MODEL}, groq={GROQ_MODEL}, deepseek={DEEPSEEK_MODEL}).",
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        default=None,
-        help="Write email document to this file (default: print only).",
+        default=DEEPSEEK_MODEL if LLM_PROVIDER == "deepseek" else LLM_MODEL,
+        help=f"Model name (default depends on provider: deepseek={DEEPSEEK_MODEL}, ollama={LLM_MODEL}).",
     )
     parser.add_argument(
         "--verbose",
@@ -77,7 +71,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--agent",
-        choices=["scraper", "analyzer", "writer", "all"],
+        choices=["scraper", "analyzer", "all"],
         default="all",
         help="Run only this agent (default: all).",
     )
@@ -87,11 +81,30 @@ def main() -> None:
         help="List all saved raw summaries from database.",
     )
     parser.add_argument(
+        "--list-runs",
+        action="store_true",
+        help="List all pipeline runs with event counts.",
+    )
+    parser.add_argument(
         "--load-summary",
         type=int,
         help="Load raw summary by ID and print it (for debugging).",
     )
     args = parser.parse_args()
+
+    if args.list_runs:
+        runs = get_runs()
+        if not runs:
+            print("No runs found in database.")
+        else:
+            print("Pipeline runs:")
+            for r in runs:
+                print(f"  Run ID {r['id']} | Agent: {r['agent']} | Events found: {r['events_found']} | Valid: {r['valid_events']} | Event count: {r['event_count']} | Created: {r['created_at']}")
+                if r.get('start_time'):
+                    print(f"    Duration: {r['duration']:.2f}s")
+                if r.get('linked_run_id'):
+                    print(f"    Linked to: {r['linked_run_id']}")
+        sys.exit(0)
 
     if args.list_summaries:
         from storage import get_raw_summaries
@@ -135,7 +148,7 @@ def main() -> None:
     print(f"LLM: {LLM_PROVIDER.upper()} | Model: {args.model} | Location: {args.location or '(general)'} | DB: {not args.no_db}\n")
 
     if args.agent == "all":
-        raw_summary, structured_events, email_doc = run_pipeline(
+        raw_summary, structured_events = run_pipeline(
             location=args.location,
             max_search=args.max_search,
             fetch_urls=args.fetch_urls,
@@ -150,20 +163,16 @@ def main() -> None:
             print(raw_summary[:2000] + ("..." if len(raw_summary) > 2000 else ""))
             print("\n--- Structured events (Agent 2) ---")
             print(structured_events)
-            print("\n--- Email document (Agent 3) ---")
 
-        print(email_doc)
+        print(f"\nFound {len(structured_events)} events.")
 
-        if args.output:
-            args.output.write_text(email_doc, encoding="utf-8")
-            print(f"\nWritten to: {args.output}")
         if not args.no_db and structured_events:
             from config import DB_PATH
             print(f"Events saved to DB: {DB_PATH}")
 
     else:
-        from agents import ScraperAgent, AnalyzerAgent, WriterAgent
-        from storage import insert_events
+        from agents import ScraperAgent, AnalyzerAgent
+        from storage import insert_events, create_run, insert_raw_summary
 
         if args.agent == "scraper":
             scraper = ScraperAgent(model=args.model)
@@ -178,41 +187,29 @@ def main() -> None:
             print(raw_summary)
 
             if not args.no_db:
-                from storage import insert_raw_summary, get_raw_summaries
+                run_id = create_run("scraper", args.location)
                 summary_id = insert_raw_summary(
                     location=args.location,
                     max_search=args.max_search,
                     fetch_urls=args.fetch_urls,
                     raw_summary=raw_summary,
+                    run_id=run_id,
                     cities=args.cities,
                     search_queries=args.search_queries,
                 )
                 from config import DB_PATH
-                print(f"\nRaw summary saved to DB: {DB_PATH} (ID: {summary_id})")
+                print(f"\nRaw summary saved to DB: {DB_PATH} (Run ID: {run_id}, Summary ID: {summary_id})")
 
         elif args.agent == "analyzer":
             analyzer = AnalyzerAgent(model=args.model)
             raw_summary = input("Paste raw summary text:\n")
-            structured_events = analyzer.run(raw_summary)
+            structured_events = analyzer.run(raw_summary, save_to_db=not args.no_db)
             print("--- Structured events (Agent 2) ---")
             print(structured_events)
 
             if not args.no_db and structured_events:
-                insert_events(structured_events)
                 from config import DB_PATH
                 print(f"Events saved to DB: {DB_PATH}")
-
-        elif args.agent == "writer":
-            writer = WriterAgent(model=args.model)
-            import json
-            structured_events = json.loads(input("Paste structured events JSON:\n"))
-            email_doc = writer.run(structured_events)
-            print("--- Email document (Agent 3) ---")
-            print(email_doc)
-
-            if args.output:
-                args.output.write_text(email_doc, encoding="utf-8")
-                print(f"\nWritten to: {args.output}")
 
 
 if __name__ == "__main__":

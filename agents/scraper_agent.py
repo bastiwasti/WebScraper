@@ -1,18 +1,20 @@
 """Agent 1: Scrapes the internet for local events using search and fetch tools."""
 
 import re
+from typing import Optional
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from config import DEFAULT_LOCATION, LLM_MODEL, OLLAMA_BASE_URL, XAI_API_KEY, XAI_BASE_URL, XAI_MODEL, ZAI_API_KEY, ZAI_BASE_URL, ZAI_MODEL, GROQ_API_KEY, GROQ_BASE_URL, GROQ_MODEL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from config import DEFAULT_LOCATION, LLM_MODEL, OLLAMA_BASE_URL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from .tools import search_web, fetch_page
+from storage import create_run, create_run_status, update_run_status_complete
 
 
 # City-specific official event URLs
 CITY_EVENT_URLS = {
     "monheim": [
-        "https://www.monheim.de/freizeit-tourismus/veranstaltungen",
+        "https://www.monheim.de/freizeit-tourismus/terminkalender",  # Main calendar with events
         "https://www.monheimer-kulturwerke.de/de/kalender/",
     ],
     "langenfeld": [
@@ -83,30 +85,6 @@ class ScraperAgent:
                 base_url=DEEPSEEK_BASE_URL,
                 temperature=0.2,
             )
-        elif LLM_PROVIDER == "groq" and GROQ_API_KEY:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=model or GROQ_MODEL,
-                api_key=GROQ_API_KEY,
-                base_url=GROQ_BASE_URL,
-                temperature=0.2,
-            )
-        elif LLM_PROVIDER == "xai" and XAI_API_KEY:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=model or XAI_MODEL,
-                api_key=XAI_API_KEY,
-                base_url=XAI_BASE_URL,
-                temperature=0.2,
-            )
-        elif LLM_PROVIDER == "zai" and ZAI_API_KEY:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=model or ZAI_MODEL,
-                api_key=ZAI_API_KEY,
-                base_url=ZAI_BASE_URL,
-                temperature=0.2,
-            )
         else:
             from langchain_ollama import ChatOllama
             self.llm = ChatOllama(
@@ -126,11 +104,16 @@ class ScraperAgent:
         max_search: int = 6,
         fetch_urls: int = 3,
         cities: list[str] | None = None,
+        urls_to_track: list[str] | None = None,
     ) -> str:
         """Run multiple searches and scrape fixed URLs for events."""
         all_parts = []
+        
+        if urls_to_track is None:
+            urls_to_track = []
+        
         urls_to_fetch: list[str] = []
-
+        
         # 1. Add city-specific URLs (all cities if not specified)
         cities_to_scrape = cities if cities else list(CITY_EVENT_URLS.keys())
         for city in cities_to_scrape:
@@ -139,12 +122,14 @@ class ScraperAgent:
                 for url in CITY_EVENT_URLS[city_lower]:
                     if url not in urls_to_fetch:
                         urls_to_fetch.append(url)
-
+                        urls_to_track.append(url)
+        
         # 2. Always include regional aggregators
         for url in REGIONAL_AGGREGATORS:
             if url not in urls_to_fetch:
                 urls_to_fetch.append(url)
-
+                urls_to_track.append(url)
+        
         # 3. Add custom search queries if provided
         if search_queries:
             per_query = max(3, max_search // len(search_queries))
@@ -156,13 +141,14 @@ class ScraperAgent:
                         u = url.strip()
                         if u and u not in urls_to_fetch:
                             urls_to_fetch.append(u)
-
+                            urls_to_track.append(u)
+        
         # 4. Fetch URLs (respect fetch_urls limit)
         for url in urls_to_fetch[:fetch_urls]:
             content = fetch_page.invoke({"url": url})
             if not content.startswith(("Error", "Failed")):
                 all_parts.append(f"Page: {url}\n{content[:5000]}")
-
+        
         return "\n\n---\n\n".join(all_parts)
 
     def run(
@@ -175,12 +161,25 @@ class ScraperAgent:
     ) -> str:
         """Search for events, fetch pages from fixed URLs, and return a summarized event text."""
         location_query = location or DEFAULT_LOCATION or "the user's area"
+        
+        run_id = create_run("scraper", location_query)
+        
+        urls_to_track = []
+        
         raw_content = self._gather_raw_content(
             location_query,
             search_queries=search_queries,
             max_search=max_search,
             fetch_urls=fetch_urls,
             cities=cities,
+            urls_to_track=urls_to_track,
         )
+        
+        create_run_status(run_id, urls_to_track)
+        
         chain = self._prompt | self.llm | StrOutputParser()
-        return chain.invoke({"location_query": location_query, "raw_content": raw_content})
+        summary = chain.invoke({"location_query": location_query, "raw_content": raw_content})
+        
+        update_run_status_complete(run_id)
+        
+        return summary

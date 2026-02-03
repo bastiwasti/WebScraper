@@ -1,11 +1,10 @@
 """Tools for the scraper agent: search and fetch web content."""
 
-import re
 from typing import Optional
 
-import requests
-from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+
+from scrapers.registry import get_scraper
 
 # Optional: DuckDuckGo search (install: pip install duckduckgo-search)
 try:
@@ -45,14 +44,6 @@ def search_web(query: str, max_results: int = 5) -> str:
         return f"Search failed: {e}"
 
 
-def _clean_text(text: str, max_chars: Optional[int] = 8000) -> str:
-    """Normalize whitespace and truncate to avoid token overflow."""
-    text = re.sub(r"\s+", " ", text).strip()
-    if max_chars and len(text) > max_chars:
-        text = text[:max_chars] + "... [truncated]"
-    return text
-
-
 @tool
 def fetch_page(url: str) -> str:
     """Fetch and extract main text from a web page. Use this to get event details from a specific URL.
@@ -63,15 +54,19 @@ def fetch_page(url: str) -> str:
     """
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
+
     try:
-        resp = requests.get(url, timeout=15, headers={"User-Agent": "WeeklyMail/1.0"})
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.decompose()
-        text = soup.get_text(separator=" ", strip=True)
-        return _clean_text(text)
-    except requests.RequestException as e:
-        return f"Failed to fetch URL: {e}"
+        scraper = get_scraper(url)
+        return scraper.fetch()
     except Exception as e:
-        return f"Error extracting content: {e}"
+        return f"Failed to fetch URL: {e}"
+
+
+def fetch_page_with_browser_check(url: str) -> str:
+    """Fetch a page, returning additional info about whether browser was needed."""
+    try:
+        scraper = get_scraper(url)
+        content = scraper.fetch()
+        return f"[Scraper: {scraper.__class__.__name__} | Browser: {scraper.needs_browser}]\n{content}"
+    except Exception as e:
+        return f"Failed to fetch URL: {e}"

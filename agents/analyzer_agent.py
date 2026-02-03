@@ -7,7 +7,7 @@ from typing import Any
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from config import LLM_MODEL, OLLAMA_BASE_URL, XAI_API_KEY, XAI_BASE_URL, XAI_MODEL, ZAI_API_KEY, ZAI_BASE_URL, ZAI_MODEL, GROQ_API_KEY, GROQ_BASE_URL, GROQ_MODEL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from config import LLM_MODEL, OLLAMA_BASE_URL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
 
 SYSTEM_PROMPT = """You are a data analyst. You receive a text that describes local events (from web search/summaries).
@@ -41,30 +41,6 @@ class AnalyzerAgent:
                 base_url=DEEPSEEK_BASE_URL,
                 temperature=0.1,
             )
-        elif LLM_PROVIDER == "groq" and GROQ_API_KEY:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=model or GROQ_MODEL,
-                api_key=GROQ_API_KEY,
-                base_url=GROQ_BASE_URL,
-                temperature=0.1,
-            )
-        elif LLM_PROVIDER == "xai" and XAI_API_KEY:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=model or XAI_MODEL,
-                api_key=XAI_API_KEY,
-                base_url=XAI_BASE_URL,
-                temperature=0.1,
-            )
-        elif LLM_PROVIDER == "zai" and ZAI_API_KEY:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=model or ZAI_MODEL,
-                api_key=ZAI_API_KEY,
-                base_url=ZAI_BASE_URL,
-                temperature=0.1,
-            )
         else:
             from langchain_ollama import ChatOllama
             self.llm = ChatOllama(
@@ -94,8 +70,22 @@ class AnalyzerAgent:
         except json.JSONDecodeError:
             return []
 
-    def run(self, raw_event_text: str) -> list[dict[str, Any]]:
+    def run(self, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False) -> list[dict[str, Any]]:
         """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source)."""
         chain = self._prompt | self.llm | StrOutputParser()
         out = chain.invoke({"raw_event_text": raw_event_text})
-        return self._parse_json_array(out)
+        events = self._parse_json_array(out)
+
+        if save_to_db and events:
+            from storage import create_run, insert_events, update_run_status_analyzed
+            run_id = create_run("analyzer", linked_run_id=scraper_run_id)
+            insert_events(events, run_id)
+            
+            valid_events = 0
+            for e in events:
+                if e.get("name") and e.get("date") and e.get("location") and e.get("source"):
+                    valid_events += 1
+            
+            update_run_status_analyzed(run_id, len(events), valid_events)
+
+        return events
