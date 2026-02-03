@@ -151,7 +151,7 @@ def _ensure_initialized() -> None:
     """Ensure registry is initialized (lazy initialization)."""
     global _RULE_REGISTRY
     if not _RULE_REGISTRY:
-        _discover_rules()
+        _RULE_REGISTRY = _discover_rules()
 
 
 def get_rule(url: str) -> Optional[RuleEntry]:

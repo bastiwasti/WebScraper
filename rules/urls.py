@@ -75,10 +75,26 @@ def get_urls_for_cities(cities: List[str]) -> List[str]:
     return urls
 
 
-def get_urls_for_city(city: str) -> List[str]:
-    """Return all URLs for a specific city."""
-    city_lower = city.lower()
-    return list(CITY_URLS.get(city_lower, {}).values())
+def get_urls_for_city(city: str | list[str]) -> List[str]:
+    """Return all URLs for a specific city or cities.
+    
+    Args:
+        city: Single city name (str) or list of city names (list[str]).
+    
+    Returns:
+        List of URL strings.
+    """
+    urls = []
+    
+    # Handle single string or list of strings
+    cities_to_process = [city] if isinstance(city, str) else city
+    
+    for c in cities_to_process:
+        city_lower = c.lower()
+        if city_lower in CITY_URLS:
+            urls.extend(CITY_URLS[city_lower].values())
+    
+    return urls
 
 
 def get_url_for_key(city: str, key: str) -> str | None:
