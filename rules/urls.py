@@ -25,8 +25,9 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
         "kultur_freizeit": "https://www.haan.de/Kultur-Freizeit/Veranstaltungen",
     },
     "leverkusen": {
-        # URLs need verification - currently broken
-        "default": "https://www.leverkusen.de",
+        "stadt_erleben": "https://www.leverkusen.de/stadt-erleben/veranstaltungskalender/",
+        "lust_auf": "https://lust-auf-leverkusen.de/",
+        "default": "https://www.leverkusen.de",  # Fallback
     },
     "hilden": {
         # URL needs verification - currently broken
