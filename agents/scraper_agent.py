@@ -12,41 +12,43 @@ from storage import create_run, create_run_status, update_run_status_complete
 
 
 # City-specific official event URLs
+# Status: ✅ Working | ❌ 404 Error | ⚠️ Connection Error | 🔒 Blocked
 CITY_EVENT_URLS = {
     "monheim": [
-        "https://www.monheim.de/freizeit-tourismus/terminkalender",  # Main calendar with events
-        "https://www.monheimer-kulturwerke.de/de/kalender/",
+        "https://www.monheim.de/freizeit-tourismus/terminkalender",  # ✅ Working - Uses Playwright for dynamic content
+        "https://www.monheimer-kulturwerke.de/de/kalender/",  # ✅ Working - Calendar-based events
     ],
     "langenfeld": [
-        "https://www.langenfeld.de/freizeit-kultur/veranstaltungen",
-        "https://www.kultur-langenfeld.de/",
+        "https://www.langenfeld.de/freizeit-kultur/veranstaltungen",  # ❌ 404 - URL needs verification
+        "https://www.kultur-langenfeld.de/",  # ⚠️ Connection Error - Website unavailable
     ],
     "leverkusen": [
-        "https://www.leverkusen.de/leben-in-lev/veranstaltungen.php",
-        "https://www.kulturstadtlev.de/veranstaltungen",
+        "https://www.leverkusen.de/leben-in-lev/veranstaltungen.php",  # ❌ 404 - URL needs verification
+        "https://www.kulturstadtlev.de/veranstaltungen",  # ❌ 404 - URL needs verification
     ],
     "hilden": [
-        "https://www.hilden.de/kultur-freizeit/veranstaltungen",
+        "https://www.hilden.de/kultur-freizeit/veranstaltungen",  # ❌ 404 - URL needs verification
     ],
     "dormagen": [
-        "https://www.dormagen.de/leben-in-dormagen/veranstaltungen",
+        "https://www.dormagen.de/leben-in-dormagen/veranstaltungen",  # ❌ 404 - URL needs verification
     ],
     "ratingen": [
-        "https://www.ratingen.de/freizeit-kultur/veranstaltungen",
+        "https://www.ratingen.de/freizeit-kultur/veranstaltungen",  # ❌ 404 - URL needs verification
     ],
     "solingen": [
-        "https://www.solingen-live.de/",
+        "https://www.solingen-live.de/",  # ✅ Working - Calendar-based UI
     ],
     "haan": [
-        "https://www.haan.de/Kultur-Freizeit/Veranstaltungen",
+        "https://www.haan.de/Kultur-Freizeit/Veranstaltungen",  # ✅ Working - Event listings in HTML
     ],
 }
 
 # Regional aggregators (always scraped)
+# Status: ✅ Working | ❌ 404 Error | ⚠️ Connection Error | 🔒 Blocked
 REGIONAL_AGGREGATORS = [
-    "https://rausgegangen.de/",
-    "https://www.eventbrite.de/d/germany--nrw/events/",
-    "https://www.meetup.com/de-DE/find/?location=de--Nordrhein-Westfalen&source=EVENTS",
+    "https://rausgegangen.de/",  # ✅ Working - Major German event aggregator
+    "https://www.eventbrite.de/d/germany--nrw/events/",  # 🔒 Blocked - Returns 405, blocks automated requests
+    "https://www.meetup.com/de-DE/find/?location=de--Nordrhein-Westfalen&source=EVENTS",  # ✅ Working - Community-driven platform
 ]
 
 SYSTEM_PROMPT = """You are an event research assistant. Your task is to find and extract local events from web content.

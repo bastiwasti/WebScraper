@@ -4,10 +4,28 @@ from typing import List, Type
 
 from .base import BaseScraper
 from .monheim import MonheimScraper
+from .solingen import SolingenScraper
+from .haan import HaanScraper
+from .langenfeld import LangenfeldScraper
+from .leverkusen import LeverkusenScraper
+from .hilden import HildenScraper
+from .dormagen import DormagenScraper
+from .ratingen import RatingenScraper
+from .aggregators import RausgegangenScraper, MeetupScraper, EventbriteScraper
 from .static import StaticScraper
 
 _SCRAPER_CLASSES: List[Type[BaseScraper]] = [
     MonheimScraper,
+    SolingenScraper,
+    HaanScraper,
+    LangenfeldScraper,
+    LeverkusenScraper,
+    HildenScraper,
+    DormagenScraper,
+    RatingenScraper,
+    RausgegangenScraper,
+    MeetupScraper,
+    EventbriteScraper,
     StaticScraper,
 ]
 

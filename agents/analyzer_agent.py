@@ -70,22 +70,72 @@ class AnalyzerAgent:
         except json.JSONDecodeError:
             return []
 
-    def run(self, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False) -> list[dict[str, Any]]:
-        """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source)."""
-        chain = self._prompt | self.llm | StrOutputParser()
-        out = chain.invoke({"raw_event_text": raw_event_text})
-        events = self._parse_json_array(out)
+    def _split_into_chunks(self, raw_event_text: str, events_per_chunk: int = 5) -> list[str]:
+        """Split raw event text into chunks of events."""
+        events_pattern = r'\*\s+\*\*Event:\*\*'
+        event_blocks = re.split(events_pattern, raw_event_text)
+        
+        if len(event_blocks) <= 1:
+            return [raw_event_text]
+        
+        chunks = []
+        for i in range(1, len(event_blocks), events_per_chunk):
+            batch = event_blocks[i:i+events_per_chunk]
+            chunk = '\n*   **Event:**'.join([''] + batch)
+            chunks.append(chunk.strip())
+        
+        return chunks
 
-        if save_to_db and events:
-            from storage import create_run, insert_events, update_run_status_analyzed
+    def _infer_category(self, description: str, name: str = "") -> str:
+        """Infer category from event description and name."""
+        text = (description + " " + name).lower()
+        
+        category_keywords = {
+            "family": ["familie", "kinder", "jugend", "kind", "baby", "schule", "eltern", "familien"],
+            "adult": ["erwachsen", "adult", "senior", "abend", "nacht", "bar", "club", "party"],
+            "sport": ["sport", "fitness", "laufen", "schwimmen", "rad", "fußball", "tennis", "yoga"],
+        }
+        
+        for category, keywords in category_keywords.items():
+            if any(kw in text for kw in keywords):
+                return category
+        
+        return "other"
+
+    def run(self, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 5) -> list[dict[str, Any]]:
+        """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source).
+        
+        Args:
+            raw_event_text: Raw text containing event information
+            scraper_run_id: Run ID of the scraper agent (for linking)
+            save_to_db: Whether to save events to database
+            chunk_size: Number of events to process per LLM call (default: 5)
+        """
+        all_events = []
+        chunks = self._split_into_chunks(raw_event_text, events_per_chunk=chunk_size)
+        
+        print(f"Processing {len(chunks)} chunk(s) with {chunk_size} events each...")
+        
+        for i, chunk in enumerate(chunks, 1):
+            print(f"  Processing chunk {i}/{len(chunks)}...")
+            chain = self._prompt | self.llm | StrOutputParser()
+            out = chain.invoke({"raw_event_text": chunk})
+            events = self._parse_json_array(out)
+            all_events.extend(events)
+            print(f"    Extracted {len(events)} events from chunk {i}")
+
+        if save_to_db and all_events:
+            from storage import create_run, insert_events, update_run_status_analyzed, create_run_status, update_run_status_complete
             run_id = create_run("analyzer", linked_run_id=scraper_run_id)
-            insert_events(events, run_id)
+            create_run_status(run_id, [])
+            insert_events(all_events, run_id)
             
             valid_events = 0
-            for e in events:
+            for e in all_events:
                 if e.get("name") and e.get("date") and e.get("location") and e.get("source"):
                     valid_events += 1
             
-            update_run_status_analyzed(run_id, len(events), valid_events)
+            update_run_status_complete(run_id)
+            update_run_status_analyzed(run_id, len(all_events), valid_events, linked_run_id=scraper_run_id)
 
-        return events
+        return all_events
