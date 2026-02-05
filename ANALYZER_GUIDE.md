@@ -356,9 +356,6 @@ from config import LLM_PROVIDER, DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_BASE
 if LLM_PROVIDER == "deepseek":
     from langchain_openai import ChatOpenAI
     llm = ChatOpenAI(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
-else:
-    from langchain_ollama import ChatOllama
-    llm = ChatOllama(model=DEEPSEEK_MODEL)
 
 # Test extraction
 chain = prompt | llm | StrOutputParser()

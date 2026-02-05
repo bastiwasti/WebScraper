@@ -6,18 +6,12 @@ from pathlib import Path
 
 import requests
 
-from config import DEFAULT_LOCATION, LLM_MODEL, OLLAMA_BASE_URL, LLM_PROVIDER, DEEPSEEK_MODEL
+from config import DEFAULT_LOCATION, LLM_PROVIDER, DEEPSEEK_MODEL
 from storage import get_runs
 from pipeline import run_pipeline
 
 
-def check_ollama(base_url: str = OLLAMA_BASE_URL) -> bool:
-    """Return True if Ollama is reachable, else False."""
-    try:
-        r = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=5)
-        return r.status_code == 200
-    except requests.RequestException:
-        return False
+
 
 
 def main() -> None:
@@ -60,8 +54,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         "-m",
-        default=DEEPSEEK_MODEL if LLM_PROVIDER == "deepseek" else LLM_MODEL,
-        help=f"Model name (default depends on provider: deepseek={DEEPSEEK_MODEL}, ollama={LLM_MODEL}).",
+        default=DEEPSEEK_MODEL,
+        help=f"Model name (default: {LLM_PROVIDER.upper()} model {DEEPSEEK_MODEL}).",
     )
     parser.add_argument(
         "--verbose",
@@ -104,9 +98,10 @@ def main() -> None:
         else:
             print("Pipeline runs:")
             for r in runs:
+                duration = f"{r['duration']:.2f}s" if r.get('duration') else "N/A"
                 print(f"  Run ID {r['id']} | Agent: {r['agent']} | Events found: {r['events_found']} | Valid: {r['valid_events']} | Event count: {r['event_count']} | Created: {r['created_at']}")
                 if r.get('start_time'):
-                    print(f"    Duration: {r['duration']:.2f}s")
+                    print(f"    Duration: {duration}")
                 if r.get('linked_run_id'):
                     print(f"    Linked to: {r['linked_run_id']}")
         sys.exit(0)
@@ -142,12 +137,6 @@ def main() -> None:
         print()
         print(summary['raw_summary'])
         sys.exit(0)
-
-    if not check_ollama():
-        print("Ollama is not running or not reachable.", file=sys.stderr)
-        print(f"Start Ollama (e.g. run 'ollama serve' or start the Ollama app), then run again.", file=sys.stderr)
-        print(f"Expected base URL: {OLLAMA_BASE_URL}", file=sys.stderr)
-        sys.exit(1)
 
     print(f"Running pipeline: {args.agent.upper()} agent")
     print(f"LLM: {LLM_PROVIDER.upper()} | Model: {args.model} | Location: {args.location or '(general)'} | DB: {not args.no_db}\n")

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Type, Optional, Union
 
 from .base import BaseRule, BaseScraper
-from .urls import CITY_URLS, AGGREGATOR_URLS
+from .urls import CITY_URLS
 
 
 class RuleEntry:
@@ -100,46 +100,7 @@ def _discover_rules() -> Dict[str, RuleEntry]:
                     print(f"Registered: {city_key}/{subfolder_key} -> {url}")
                 else:
                     print(f"Warning: Could not find rule classes for {base_path}")
-
-    # Discover aggregator rules
-    for agg_key, url in AGGREGATOR_URLS.items():
-        # Expected module paths:
-        # scraper: rules.aggregators.{agg_key}.scraper
-        # regex: rules.aggregators.{agg_key}.regex
-        base_path = f"rules.aggregators.{agg_key}"
-
-        scraper_module = _import_module(f"{base_path}.scraper")
-        regex_module = _import_module(f"{base_path}.regex")
-
-        if scraper_module and regex_module:
-            # Find rule classes in each module
-            scraper_class = None
-            regex_class = None
-
-            for attr_name in dir(scraper_module):
-                attr = getattr(scraper_module, attr_name)
-                if (isinstance(attr, type) and
-                    issubclass(attr, BaseScraper) and
-                    attr != BaseScraper and
-                    attr_name.endswith("Scraper")):
-                    scraper_class = attr
-                    break
-
-            for attr_name in dir(regex_module):
-                attr = getattr(regex_module, attr_name)
-                if (isinstance(attr, type) and
-                    issubclass(attr, BaseRule) and
-                    attr != BaseRule and
-                    attr_name.endswith("Rule") or attr_name.endswith("Regex")):
-                    regex_class = attr
-                    break
-
-            if scraper_class and regex_class:
-                registry[url] = RuleEntry(url, scraper_class, regex_class)
-                print(f"Registered: aggregator/{agg_key} -> {url}")
-            else:
-                print(f"Warning: Could not find rule classes for {base_path}")
-
+ 
     return registry
 
 

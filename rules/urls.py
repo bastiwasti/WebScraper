@@ -8,7 +8,7 @@ from typing import List, Dict
 
 # City-specific event URLs
 # Each city can have multiple URLs (e.g., main site + cultural venues)
-# Key is the subfolder name in rules/cities/
+# Key is subfolder name in rules/cities/
 CITY_URLS: Dict[str, Dict[str, str]] = {
     "monheim": {
         "terminkalender": "https://www.monheim.de/freizeit-tourismus/terminkalender",
@@ -43,14 +43,6 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     },
 }
 
-# Regional aggregator URLs (always scraped)
-# Key is the subfolder name in rules/aggregators/
-AGGREGATOR_URLS: Dict[str, str] = {
-    "rausgegangen": "https://rausgegangen.de/",
-    "meetup": "https://www.meetup.com/de-DE/find/?location=de--Nordrhein-Westfalen&source=EVENTS",
-    "eventbrite": "https://www.eventbrite.de/d/germany--nrw/events/",
-}
-
 
 def get_all_urls() -> List[str]:
     """Return all URLs (city + aggregators)."""
@@ -58,8 +50,6 @@ def get_all_urls() -> List[str]:
 
     for city, url_dict in CITY_URLS.items():
         all_urls.extend(url_dict.values())
-
-    all_urls.extend(AGGREGATOR_URLS.values())
 
     return all_urls
 
@@ -126,21 +116,14 @@ def get_city_for_url(url: str) -> str | None:
     return None
 
 
-def is_aggregator_url(url: str) -> bool:
-    """Check if URL is a regional aggregator."""
-    url_lower = url.lower()
-    return any(agg_url.lower() in url_lower for agg_url in AGGREGATOR_URLS.values())
-
-
 def get_rule_key_for_url(url: str) -> tuple[str, str] | None:
     """Return (type, key) tuple for a given URL.
 
     Returns:
-        ("city", city_key) or ("aggregator", aggregator_key) or None.
+        ("city", city_key) or None.
 
     Examples:
         - "https://www.monheim.de/freizeit-tourismus/terminkalender" -> ("city", "monheim/terminkalender")
-        - "https://rausgegangen.de/" -> ("aggregator", "rausgegangen")
     """
     url_lower = url.lower()
 
@@ -149,8 +132,5 @@ def get_rule_key_for_url(url: str) -> tuple[str, str] | None:
             if u.lower() == url_lower:
                 return ("city", f"{city}/{subfolder}")
 
-    for agg_key, agg_url in AGGREGATOR_URLS.items():
-        if agg_url.lower() in url_lower:
-            return ("aggregator", agg_key)
-
     return None
+

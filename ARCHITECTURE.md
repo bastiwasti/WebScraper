@@ -48,7 +48,7 @@ WebScraper is a two-agent LLM-powered pipeline for discovering and structuring l
 | **Analyzer Agent** | Extracts structured event data | `agents/analyzer_agent.py` |
 | **URL Rules System** | Maps URLs to scrapers/parsers | `rules/registry.py` |
 | **Storage Layer** | SQLite database operations | `storage.py` |
-| **LLM Provider** | DeepSeek or Ollama integration | `config.py` |
+| **LLM Provider** | DeepSeek integration | `config.py` |
 
 ---
 
@@ -146,7 +146,7 @@ python main.py --agent analyzer
             │    - BaseRule subclasses
             │    - Event extraction patterns
             │
-            ├──▶ LLM (DeepSeek or Ollama)
+            ├──▶ LLM (DeepSeek)
             │    - Raw summary generation
             │    - LLM fallback for extraction
             │
@@ -311,8 +311,8 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER | Primary key |
-| `agent` | TEXT | Agent type (scraper/analyzer) |
-| `location` | TEXT | Location for the run |
+| `agent` | TEXT | Agent type (comma-separated: "scraper, analyzer") |
+| `cities` | TEXT | Cities scraped (comma-separated) |
 | `created_at` | TEXT | ISO timestamp |
 | `raw_summary_id` | INTEGER | FK to raw_summaries (analyzer only) |
 
@@ -431,7 +431,6 @@ WebScraper/
 | Provider | Model | Configuration |
 |----------|-------|---------------|
 | **DeepSeek** | `deepseek-chat` | `LLM_PROVIDER=deepseek` (default) |
-| **Ollama** | `mistral`, `phi3`, etc. | `LLM_PROVIDER=ollama` |
 
 ### LLM Usage
 

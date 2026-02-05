@@ -221,27 +221,29 @@ class BaseRule(ABC):
             from langchain_core.output_parsers import StrOutputParser
             from langchain_core.prompts import ChatPromptTemplate
 
-            from config import LLM_MODEL, OLLAMA_BASE_URL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, LLM_PROVIDER
+            from config import LLM_PROVIDER, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
             if LLM_PROVIDER == "deepseek" and DEEPSEEK_API_KEY:
                 from langchain_openai import ChatOpenAI
-                llm = ChatOpenAI(
-                    model=DEEPSEEK_MODEL,
-                    api_key=str(DEEPSEEK_API_KEY),
-                    base_url=DEEPSEEK_BASE_URL,
-                    temperature=0.2,
-                )
+
+                from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+                try:
+                    from langchain_openai import ChatOpenAI
+                    llm = ChatOpenAI(
+                        model=DEEPSEEK_MODEL,
+                        api_key=str(DEEPSEEK_API_KEY),
+                        base_url=DEEPSEEK_BASE_URL,
+                        temperature=0.0,
+                    )
+                except Exception:
+                    print("Warning: LLM fallback failed - cannot initialize DeepSeek client")
+                    return []
             else:
-                from langchain_ollama import ChatOllama
-                llm = ChatOllama(
-                    model=LLM_MODEL,
-                    base_url=OLLAMA_BASE_URL,
-                    temperature=0.2,
-                )
+                return []
 
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "Extract event information from the following text. Return as structured data."),
-                ("human", "Text:\n{content}\n\nExtract all events with: name, date, time, location, description, source (use '{source}')."),
+                ("system", "Extrahieren Sie Ereignisinformationen aus dem folgenden Text. Geben Sie sie als strukturierte Daten zurück. Verwenden Sie EXAKT dieselben Wörter wie im Original - kein Übersetzen, kein Umformulieren."),
+                ("human", "Text:\n{content}\n\nExtrahieren Sie alle Veranstaltungen mit: name, datum, uhrzeit, ort, beschreibung, quelle (nutzen Sie '{source}')."),
             ])
 
             chain = prompt | llm | StrOutputParser()

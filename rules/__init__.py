@@ -31,10 +31,8 @@ from .urls import (
     get_urls_for_city,
     get_url_for_key,
     get_city_for_url,
-    is_aggregator_url,
     get_rule_key_for_url,
     CITY_URLS,
-    AGGREGATOR_URLS,
 )
 
 from .base import Event, BaseRule, BaseScraper
@@ -90,13 +88,11 @@ __all__ = [
     "Event",
     "BaseRule",
     "CITY_URLS",
-    "AGGREGATOR_URLS",
     "get_all_urls",
     "get_urls_for_cities",
     "get_urls_for_city",
     "get_url_for_key",
     "get_city_for_url",
-    "is_aggregator_url",
     "get_rule_key_for_url",
     "get_rule",
     "get_rule_or_raise",

@@ -10,12 +10,8 @@ try:
 except ImportError:
     pass
 
-# LLM Provider: "deepseek" (default) or "ollama"
+# LLM Provider: "deepseek" (ONLY)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").lower()
-
-# Local LLM via Ollama (use Mistral or compatible model)
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "phi3")
 
 # DeepSeek API
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")

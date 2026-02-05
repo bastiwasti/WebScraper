@@ -7,23 +7,32 @@ from typing import Any
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from config import LLM_MODEL, OLLAMA_BASE_URL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
-from storage import create_run
+from storage import create_run_status
 
 
-SYSTEM_PROMPT = """You are a data analyst. You receive a text that describes local events (from web search/summaries).
-Your task is to extract every event and output a single JSON array of objects. Each object must have exactly these fields:
-- "name": string (event title)
-- "description": string (short summary or category)
-- "location": string (venue or place)
-- "date": string (e.g. "2025-02-01" or "Samstag 1. Februar")
-- "time": string (e.g. "14:00" or "all day") or empty string if unknown
-- "source": string (URL or website name where the event was found; required)
-- "category": string - Categorize as one of: "family", "adult", "sport", "other" (based on event type, target audience, and content)
-Output only the JSON array, no markdown code fence, no extra text. If there are no events, output []."""
+SYSTEM_PROMPT = """Sie sind ein Datenanalyst. Sie erhalten einen Text, der lokale Veranstaltungen beschreibt (aus Websuche/Zusammenfassungen).
+Ihre Aufgabe ist es, jedes Ereignis zu extrahieren und als einzelnes JSON-Array von Objekten auszugeben. Jedes Objekt muss genau diese Felder enthalten:
+- "name": string (Ereignistitel) - Verwenden Sie EXAKT dieselben Wörter wie im Original
+- "description": string (kurze Beschreibung oder Kategorie) - Verwenden Sie EXAKT dieselben Wörter wie im Original
+- "location": string (Veranstaltungsort oder Ort) - Verwenden Sie EXAKT dieselben Wörter wie im Original
+- "date": string (z.B. "2025-02-01" oder "Samstag 1. Februar") - Verwenden Sie EXAKT dieselben Wörter wie im Original
+- "time": string (z.B. "14:00" oder "ganzen Tag") oder leere Zeichenkette, wenn unbekannt
+- "source": string (URL oder Name der Website, wo das Ereignis gefunden wurde; erforderlich)
+- "category": string - Kategorisieren Sie als einen dieser: "family" (familienfreundlich), "adult" (für Erwachsene), "sport" (Sportveranstaltung), "other" (alle anderen)
 
-USER_PROMPT = """Extract all events from this text into a JSON array (include source for each event):
+WICHTIG: Verwenden Sie EXAKT dieselben Wörter wie im Original - kein Übersetzen, kein Umformulieren, kein Hinzufügen oder Entfernen von Informationen.
+Wenn der Text "Zeugniswochenende" enthält, schreiben Sie "Zeugniswochenende", nicht "Weekend of Zeugnisausgabe".
+Wenn der Text "Jugendberufshilfe" enthält, schreiben Sie "Jugendberufshilfe", nicht "Local youth career assistance providers".
+
+Geben Sie NUR das JSON-Array aus, kein Markdown-Code-Fence, kein zusätzlicher Text. Wenn keine Ereignisse vorhanden sind, geben Sie [] aus."""
+
+USER_PROMPT = """Extrahieren Sie alle Ereignisse aus diesem Text in ein JSON-Array (enthält die Quelle für jedes Ereignis).
+
+WICHTIG: Behalten Sie EXAKT dieselben Wörter wie im Original - kein Übersetzen, kein Umformulieren.
+Wenn die JSON Felder in Deutsch sind (datum, uhrzeit, ort, beschreibung, quelle), behalten Sie diese Feldnamen.
+Wenn die JSON Felder in Englisch sind (date, time, location, description, source), behalten Sie diese Feldnamen.
 
 {raw_event_text}
 """
@@ -41,14 +50,7 @@ class AnalyzerAgent:
                 model=model or DEEPSEEK_MODEL,
                 api_key=DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_BASE_URL,
-                temperature=0.1,
-            )
-        else:
-            from langchain_ollama import ChatOllama
-            self.llm = ChatOllama(
-                model=model or LLM_MODEL,
-                base_url=base_url or OLLAMA_BASE_URL,
-                temperature=0.1,
+                temperature=0.0,
             )
         self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
@@ -104,32 +106,62 @@ class AnalyzerAgent:
         
         return "other"
 
+    def _normalize_field_names(self, event: dict) -> dict:
+        """Normalize German field names to English database schema.
+        
+        Maps:
+        - datum → date
+        - uhrzeit → time
+        - ort → location
+        - beschreibung → description
+        - quelle → source
+        """
+        normalized = {}
+        field_mapping = {
+            'datum': 'date',
+            'uhrzeit': 'time',
+            'ort': 'location',
+            'beschreibung': 'description',
+            'quelle': 'source',
+            'name': 'name',
+        }
+
+        for key, value in event.items():
+            if key in field_mapping:
+                normalized[field_mapping[key]] = value
+            else:
+                normalized[key] = value
+
+        return normalized
+
     def _infer_city_from_source(self, source: str, url_metrics: dict | None = None) -> str:
         """Infer city from event source URL."""
         if url_metrics:
             for url, metrics in url_metrics.items():
                 if url in source or source in url:
                     city = metrics.get('city', '')
-                    if city and city != 'aggregator':
+                    if city:
                         return city
         
-        from rules import get_city_for_url, is_aggregator_url
+        from rules import get_city_for_url
         city = get_city_for_url(source)
         if city:
             return city
-        if is_aggregator_url(source):
-            return 'aggregator'
         return ''
 
-    def run(self, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 5, url_metrics: dict | None = None) -> list[dict[str, Any]]:
+    def run(self, run_id: int, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 5, url_metrics: dict | None = None) -> list[dict[str, Any]]:
         """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source, city).
-        
+
         Args:
+            run_id: The pipeline run_id (from create_run). Required for tracking.
             raw_event_text: Raw text containing event information
             scraper_run_id: Run ID of the scraper agent (for linking)
             save_to_db: Whether to save events to database
             chunk_size: Number of events to process per LLM call (default: 5)
             url_metrics: URL metrics from scraper containing city information
+
+        Returns:
+            List of structured event dicts.
         """
         all_events = []
         chunks = self._split_into_chunks(raw_event_text, events_per_chunk=chunk_size)
@@ -143,6 +175,8 @@ class AnalyzerAgent:
             events = self._parse_json_array(out)
             
             for event in events:
+                # Normalize German field names to English database schema
+                event = self._normalize_field_names(event)
                 source = event.get("source", "")
                 city = self._infer_city_from_source(source, url_metrics)
                 event["city"] = city
@@ -151,16 +185,25 @@ class AnalyzerAgent:
             print(f"    Extracted {len(events)} events from chunk {i}")
 
         if save_to_db and all_events:
-            from storage import insert_events, update_run_status_analyzed, update_run_status_complete, create_run
-            run_id = scraper_run_id if scraper_run_id else create_run("analyzer", linked_run_id=scraper_run_id)
-            insert_events(all_events, run_id)
-            
+            from storage import insert_events, update_run_status_analyzed
+
+            # Use provided run_id or scraper_run_id
+            target_run_id = run_id if run_id else scraper_run_id
+
+            # Calculate totals
+            events_found = len(all_events)
             valid_events = 0
             for e in all_events:
                 if e.get("name") and e.get("date") and e.get("location") and e.get("source"):
                     valid_events += 1
-            
-            update_run_status_complete(run_id)
-            update_run_status_analyzed(run_id, len(all_events), valid_events, linked_run_id=scraper_run_id)
+
+            # Update status with ADD (not REPLACE)
+            update_run_status_analyzed(
+                target_run_id,
+                events_found,
+                valid_events,
+                linked_run_id=scraper_run_id,
+            )
+            insert_events(all_events, target_run_id)
 
         return all_events

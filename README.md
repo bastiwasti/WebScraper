@@ -23,20 +23,12 @@ pip install -r requirements.txt
 
 ### 2. Configure LLM
 
-**Option A: DeepSeek (default, FREE)**
+**DeepSeek (default, FREE)**
 
 ```bash
 cp .env.example .env
 # Edit .env and add:
 # DEEPSEEK_API_KEY=your-key-from-platform.deepseek.com
-```
-
-**Option B: Ollama (local)**
-
-```bash
-# Install Ollama from https://ollama.ai/download
-ollama pull mistral  # or another model
-# No .env changes needed for default config
 ```
 
 ### 3. Run the pipeline
@@ -124,17 +116,13 @@ python main.py --cities monheim -v
 ### Environment Variables (.env)
 
 ```bash
-# LLM Provider (deepseek or ollama)
+# LLM Provider (deepseek)
 LLM_PROVIDER=deepseek
 
 # DeepSeek Configuration
 DEEPSEEK_API_KEY=your-api-key
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 DEEPSEEK_MODEL=deepseek-chat
-
-# Ollama Configuration
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL=mistral
 
 # Default location for searches
 DEFAULT_LOCATION=Monheim 40789
@@ -158,15 +146,6 @@ DB_PATH=data/events.db
 | Hilden | ❌ Broken | URLs need verification |
 | Dormagen | ❌ Broken | URLs need verification |
 | Ratingen | ❌ Broken | URLs need verification |
-
-### Supported Aggregators
-
-| Aggregator | Status | Notes |
-|------------|--------|-------|
-| Rausgegangen | ✅ Working | Regional events |
-| Meetup | ✅ Working | Community events |
-| Eventbrite | ❌ Blocked | Requires API access |
-
 ---
 
 ## Project Structure
@@ -188,14 +167,10 @@ WebScraper/
 │   ├── scraper_agent.py   # Scraper agent (Agent 1)
 │   ├── analyzer_agent.py  # Analyzer agent (Agent 2)
 │   └── tools.py           # Web search and fetch tools
-├── rules/                 # URL rules and scrapers
-│   ├── base.py            # Base rule interface
-│   ├── registry.py        # URL-to-rule mapping
-│   └── aggregators/       # Per-site scrapers
-│       ├── __init__.py
-│       ├── eventbrite/
-│       ├── meetup/
-│       └── rausgegangen/
+ ├── rules/                 # URL rules and scrapers
+ │   ├── base.py            # Base rule interface
+ │   ├── registry.py        # URL-to-rule mapping
+ │   └── urls.py            # CITY_URLS, URL helper functions
 ├── data/                  # Database storage
 │   └── events.db          # SQLite database (created on run)
 ├── logs/                  # Timestamped log files
@@ -226,9 +201,8 @@ The `data/events.db` SQLite database contains:
 
 ## Tech Stack
 
-- **LangChain** - LLM orchestration (OpenAI, Ollama integrations)
+- **LangChain** - LLM orchestration
 - **DeepSeek** - Free cloud LLM (default)
-- **Ollama** - Local LLM option
 - **DuckDuckGo Search** - Web search
 - **Requests + BeautifulSoup** - HTTP and HTML parsing
 - **Playwright** - Dynamic content rendering

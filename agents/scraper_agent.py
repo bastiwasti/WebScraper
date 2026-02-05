@@ -18,15 +18,13 @@ from rich.table import Table
 from rich.console import Console
 from rich.logging import RichHandler
 
-from config import DEFAULT_LOCATION, LLM_MODEL, OLLAMA_BASE_URL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, LLM_PROVIDER
-from storage import create_run, create_run_status, update_run_status_complete
+from config import DEFAULT_LOCATION, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, LLM_PROVIDER
+from storage import create_run_status
 from rules import (
     get_urls_for_city,
     get_city_for_url,
-    is_aggregator_url,
     fetch_events_from_url,
     CITY_URLS,
-    AGGREGATOR_URLS,
 )
 
 
@@ -53,22 +51,24 @@ def _setup_logging() -> logging.Logger:
     return logger
 
 
-SYSTEM_PROMPT = """You are an event research assistant. Your task is to find and extract local events from web content.
+SYSTEM_PROMPT = """Sie sind ein Ereignisforscher. Ihre Aufgabe ist es, lokale Veranstaltungen aus Webinhalt zu finden und zu erfassen.
 
-From the raw search and web content you are given, extract every relevant event. For each event include:
-- Event name
-- Date and time (if available)
-- Location or venue
-- Short description or category
-- Source: URL or website name where you found it (required)
+Extrahieren Sie jedes relevante Ereignis aus dem rohen Inhalt. Verwenden Sie EXAKT dieselben Wörter wie im Original - kein Übersetzen, kein Umformulieren, kein Zusammenfassen, kein Hinzufügen oder Entfernen von Informationen.
 
-Keep only real events from the content; do not invent any. If the content has no suitable events, say so clearly."""
+Für jedes Ereignis enthalten:
+- Ereignisname
+- Datum und Uhrzeit (falls verfügbar)
+- Ort oder Veranstaltungsort
+- Kurze Beschreibung oder Kategorie
+- Quelle: URL oder Name der Website
 
-USER_PROMPT = """Summarize the following raw web content for events in: {location_query}.
+Behalten Sie nur echte Veranstaltungen aus dem Inhalt; erfinden Sie keine. Wenn der Inhalt keine passenden Veranstaltungen enthält, sagen Sie das deutlich.
 
-Extract and list every event you find. For each event include the source (URL or site name). Output one coherent text (no JSON) for the next processing step. Base your summary only on the content below.
+WICHTIG: Behalten Sie exakt dieselben Wörter wie im Original. Wenn der Text 'Zeugniswochenende' enthält, schreiben Sie 'Zeugniswochenende', nicht 'Weekend of Zeugnisausgabe'. Wenn der Text 'Jugendberufshilfe' enthält, schreiben Sie 'Jugendberufshilfe', nicht 'Local youth career assistance providers'."""
 
-Raw content:
+USER_PROMPT = """Listen Sie alle Veranstaltungen aus dem folgenden Webinhalt auf. Für jedes Ereignis enthalten Sie die Quelle (URL oder Name der Website).
+Wenden Sie sich EXAKT an den folgenden Inhalt und verwenden Sie exakt dieselben Wörter wie im Original.
+Rohinhalt:
 ---
 {raw_content}
 ---
@@ -88,14 +88,7 @@ class ScraperAgent:
                 model=model or DEEPSEEK_MODEL,
                 api_key=DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_BASE_URL,
-                temperature=0.2,
-            )
-        else:
-            from langchain_ollama import ChatOllama
-            self.llm = ChatOllama(
-                model=model or LLM_MODEL,
-                base_url=base_url or OLLAMA_BASE_URL,
-                temperature=0.2,
+                temperature=0.0,
             )
         self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
@@ -162,6 +155,7 @@ class ScraperAgent:
         fetch_urls: int = 3,
         cities: list[str] | None = None,
         urls_to_track: list[str] | None = None,
+        run_id: int = None,
         logger: logging.Logger = None,
     ) -> tuple[str, dict, dict]:
         """Run multiple searches and scrape fixed URLs for events with Rich progress tracking.
@@ -186,13 +180,7 @@ class ScraperAgent:
                     urls_to_fetch.append(url)
                     urls_to_track.append(url)
         
-        # 2. Always include regional aggregators
-        for url in AGGREGATOR_URLS.values():
-            if url not in urls_to_fetch:
-                urls_to_fetch.append(url)
-                urls_to_track.append(url)
-        
-        # 3. Add custom search queries if provided
+        # 2. Add custom search queries if provided
         if search_queries:
             from .tools import search_web
             per_query = max(3, max_search // len(search_queries))
@@ -298,6 +286,7 @@ class ScraperAgent:
 
     def run(
         self,
+        run_id: int,
         location: str = "",
         search_queries: list[str] | None = None,
         max_search: int = 8,
@@ -305,20 +294,21 @@ class ScraperAgent:
         cities: list[str] | None = None,
     ) -> tuple[str, dict, dict]:
         """Search for events, fetch pages from fixed URLs, and return a summarized event text.
-        
+
         Uses new rules/ system with Rich progress bars and structured logging.
-        
+
+        Args:
+            run_id: The pipeline run_id (from create_run). Required for tracking.
+
         Returns:
             tuple of (summary, url_metrics, city_event_counts)
         """
         location_query = location or DEFAULT_LOCATION or "the user's area"
-        
-        run_id = create_run("scraper", location_query)
-        
+
         urls_to_track = []
-        
+
         logger = _setup_logging()
-        
+
         raw_content, url_metrics, city_event_counts = self._gather_raw_content_with_rich(
             location_query,
             search_queries=search_queries,
@@ -328,15 +318,11 @@ class ScraperAgent:
             urls_to_track=urls_to_track,
             logger=logger,
         )
-        
-        create_run_status(run_id, urls_to_track)
-        
+
         if not search_queries:
             summary = raw_content
         else:
             chain = self._prompt | self.llm | StrOutputParser()
             summary = chain.invoke({"location_query": location_query, "raw_content": raw_content})
-        
-        update_run_status_complete(run_id)
-        
+
         return (summary, url_metrics, city_event_counts)

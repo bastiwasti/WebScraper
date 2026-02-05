@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import json
 
 from config import DB_PATH
 
@@ -26,7 +27,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
             CREATE TABLE IF NOT EXISTS runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent TEXT NOT NULL,
-                location TEXT,
+                cities TEXT,
                 created_at TEXT NOT NULL,
                 raw_summary_id INTEGER
             )
@@ -113,7 +114,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
 
 def create_run(
     agent: str,
-    location: str = "",
+    cities: list[str] | None = None,
     raw_summary_id: int | None = None,
     linked_run_id: int | None = None,
     conn: sqlite3.Connection | None = None,
@@ -125,15 +126,51 @@ def create_run(
     try:
         init_db(conn)
         now = datetime.utcnow().isoformat() + "Z"
+        
+        # Convert cities list to comma-separated string
+        cities_str = ",".join(cities) if cities else None
+        
         cur = conn.execute(
             """
-            INSERT INTO runs (agent, location, created_at, raw_summary_id)
+            INSERT INTO runs (agent, cities, created_at, raw_summary_id)
             VALUES (?, ?, ?, ?)
             """,
-            (agent, location, now, raw_summary_id),
+            (agent, cities_str, now, raw_summary_id),
         )
         conn.commit()
         return cur.lastrowid or 0
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def append_to_agent(run_id: int, agent_name: str, conn: sqlite3.Connection | None = None) -> None:
+    """Append agent name to agent column (comma-separated)."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        # Get current agent string
+        cur = conn.execute("SELECT agent FROM runs WHERE id = ?", (run_id,))
+        row = cur.fetchone()
+        if row and row["agent"]:
+            current_agent = row["agent"]
+            # Append if not already present
+            if agent_name not in current_agent:
+                new_agent = f"{current_agent}, {agent_name}"
+                conn.execute(
+                    "UPDATE runs SET agent = ? WHERE id = ?",
+                    (new_agent, run_id),
+                )
+                conn.commit()
+        else:
+            # Set initial agent
+            conn.execute(
+                "UPDATE runs SET agent = ? WHERE id = ?",
+                (agent_name, run_id),
+            )
+            conn.commit()
     finally:
         if own_conn:
             conn.close()
@@ -148,9 +185,9 @@ def get_runs(limit: int = 20, conn: sqlite3.Connection | None = None) -> list[di
         init_db(conn)
         cur = conn.execute(
             """
-            SELECT r.id, r.agent, r.location, r.created_at,
-                   s.start_time, s.end_time, s.duration, s.events_found, s.valid_events, s.linked_run_id,
-                   (SELECT COUNT(*) FROM events WHERE events.run_id = r.id) as event_count
+            SELECT r.id, r.agent, r.cities, r.created_at,
+                    s.start_time, s.end_time, s.duration, s.events_found, s.valid_events, s.linked_run_id,
+                    (SELECT COUNT(*) FROM events WHERE events.run_id = r.id) as event_count
             FROM runs r
             LEFT JOIN status s ON s.run_id = r.id
             ORDER BY r.id DESC
@@ -163,7 +200,7 @@ def get_runs(limit: int = 20, conn: sqlite3.Connection | None = None) -> list[di
             {
                 "id": r["id"],
                 "agent": r["agent"],
-                "location": r["location"] or "",
+                "cities": r["cities"] or "",
                 "created_at": r["created_at"],
                 "start_time": r["start_time"],
                 "end_time": r["end_time"],
@@ -184,6 +221,7 @@ def create_run_status(
     run_id: int,
     urls: list[str],
     full_run: bool = False,
+    start_time: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     """Create a status row for a run."""
@@ -192,7 +230,7 @@ def create_run_status(
         conn = get_connection()
     try:
         init_db(conn)
-        now = datetime.utcnow().isoformat() + "Z"
+        now = start_time if start_time else datetime.utcnow().isoformat() + "Z"
         import json
         urls_json = json.dumps(urls)
         cur = conn.execute(
@@ -200,7 +238,7 @@ def create_run_status(
             INSERT INTO status (run_id, urls, start_time, full_run)
             VALUES (?, ?, ?, ?)
             """,
-            (run_id, urls_json, now, 1 if full_run else 0),
+            (run_id, urls_json, now, full_run),
         )
         conn.commit()
         return cur.lastrowid or 0
@@ -211,24 +249,41 @@ def create_run_status(
 
 def update_run_status_complete(
     run_id: int,
+    end_time: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> None:
-    """Update status row with end time when scraper completes."""
+    """Update status row with end time when pipeline completes."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
-        now = datetime.utcnow().isoformat() + "Z"
-        conn.execute(
-            """
-            UPDATE status
-            SET end_time = ?,
-                duration = strftime('%s', 'now') - strftime('%s', start_time)
-            WHERE run_id = ?
-            """,
-            (now, run_id),
-        )
+        if end_time:
+            conn.execute(
+                """
+                UPDATE status
+                SET end_time = ?
+                WHERE run_id = ?
+                """,
+                (end_time, run_id),
+            )
+            conn.execute(
+                """
+                UPDATE status
+                SET duration = strftime('%s', 'now') - strftime('%s', start_time)
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE status
+                SET duration = strftime('%s', 'now') - strftime('%s', start_time)
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            )
         conn.commit()
     finally:
         if own_conn:
@@ -242,23 +297,41 @@ def update_run_status_analyzed(
     linked_run_id: int | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> None:
-    """Update status row with analyzer results."""
+    """Update status row with analyzer results (ADD to existing values)."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
-        conn.execute(
-            """
-            UPDATE status
-            SET events_found = ?,
-                valid_events = ?,
-                linked_run_id = ?
-            WHERE run_id = ?
-            """,
-            (events_found, valid_events, linked_run_id, run_id),
+        # Get current values
+        cur = conn.execute(
+            "SELECT events_found, valid_events, linked_run_id FROM status WHERE run_id = ?",
+            (run_id,)
         )
-        conn.commit()
+        row = cur.fetchone()
+        if row:
+            current_events_found = row["events_found"] or 0
+            current_valid_events = row["valid_events"] or 0
+            current_linked_run_id = row["linked_run_id"]
+
+            # Calculate new values (ADD, not REPLACE)
+            new_events_found = current_events_found + events_found
+            new_valid_events = current_valid_events + valid_events
+            new_linked_run_id = linked_run_id if linked_run_id else current_linked_run_id
+
+            conn.execute(
+                """
+                UPDATE status
+                SET events_found = ?,
+                    valid_events = ?,
+                    linked_run_id = ?
+                WHERE run_id = ?
+                """,
+                (new_events_found, new_valid_events, new_linked_run_id, run_id),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"Warning: Failed to update run status: {e}")
     finally:
         if own_conn:
             conn.close()
@@ -497,3 +570,20 @@ def get_raw_summary_by_id(summary_id: int, conn: sqlite3.Connection | None = Non
     finally:
         if own_conn:
             conn.close()
+
+__all__ = [
+    "get_connection",
+    "init_db",
+    "create_run",
+    "append_to_agent",
+    "get_runs",
+    "create_run_status",
+    "update_run_status_complete",
+    "update_run_status_analyzed",
+    "insert_events",
+    "get_events",
+    "row_to_dict",
+    "insert_raw_summary",
+    "get_raw_summaries",
+    "get_raw_summary_by_id",
+]
