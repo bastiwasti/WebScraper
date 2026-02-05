@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class RausgegangenScraper(BaseRule):
+class RausgegangenScraper(BaseScraper):
     """Scraper for Rausgegangen.de event listings."""
 
     @classmethod

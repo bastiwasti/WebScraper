@@ -33,6 +33,7 @@ class Event:
     time: str
     source: str
     category: str = "other"
+    city: str = ""
 
 
 class BaseScraper(ABC):

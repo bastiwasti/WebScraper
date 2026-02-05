@@ -1,169 +1,236 @@
-# WeeklyMail – Event Pipeline
+# WebScraper - Agent Documentation
 
-Two-agent pipeline: **Scraper** -> **Analyzer**. Uses **LangChain** and **LLMs** (via **DeepSeek** (default, FREE!) or **Ollama** (local)) to find **local events** across multiple cities in NRW, structure them (name, description, location, date, source), and **store them in SQLite**. Events are then displayed in a separate app. Suitable for **automated runs** (e.g. weekly).
+## Table of Contents
 
-## Tech stack
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+- [Learn More](#learn-more)
 
-- **LangChain** (langchain, langchain-community, langchain-ollama, langchain-openai)
-- **LLM**: DeepSeek API (cloud, FREE, default) or Ollama (local)
-- **Search**: DuckDuckGo (duckduckgo-search)
-- **Scraping**: requests + BeautifulSoup
-- **Storage**: SQLite (`data/events.db`) for scraped events and raw summaries
+---
 
-## Setup
+## Quick Start
 
-### 1. Python environment
+### 1. Install dependencies
 
 ```bash
-cd WeeklyMail
 python -m venv .venv
-.venv\Scripts\activate   # Windows
-# source .venv/bin/activate  # macOS/Linux
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Choose your LLM provider
+### 2. Configure LLM
 
-**Option A: DeepSeek API (cloud, COMPLETELY FREE!) 🆓 ⭐⭐⭐ (DEFAULT)**
+**Option A: DeepSeek (default, FREE)**
 
-- Get a DeepSeek API key from [platform.deepseek.com](https://platform.deepseek.com/)
-- Sign up for free account (completely free API access)
-- Copy `.env.example` to `.env` and configure:
-  ```
-  LLM_PROVIDER=deepseek
-  DEEPSEEK_API_KEY=your-actual-api-key
-  DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-  DEEPSEEK_MODEL=deepseek-chat
-  ```
-  💰 Completely FREE API access
-  🚀 Fast (70B model)
-  🌟 Excellent quality for English
+```bash
+cp .env.example .env
+# Edit .env and add:
+# DEEPSEEK_API_KEY=your-key-from-platform.deepseek.com
+```
 
 **Option B: Ollama (local)**
 
-- Install [Ollama](https://ollama.ai/download) and start it.
-- Pull a model (e.g. Mistral):
-
 ```bash
-ollama pull mistral
+# Install Ollama from https://ollama.ai/download
+ollama pull mistral  # or another model
+# No .env changes needed for default config
 ```
 
-- Copy `.env.example` to `.env` (or leave defaults):
-  ```
-  LLM_PROVIDER=ollama
-  LLM_MODEL=mistral
-  OLLAMA_BASE_URL=http://localhost:11434
-  ```
-
-### 3. Run pipeline
-
-From the project root:
+### 3. Run the pipeline
 
 ```bash
-python main.py --location "Berlin"
-```
-
-**Options:**
-
-- `-l, --location` – Location for event search (e.g. `"Munich"`, `"New York"`).
-- `-m, --model` – LLM model (default: depends on provider).
-- `-v, --verbose` – Also print raw summary and structured events.
-- `--max-search` – Max search results (default: 8).
-- `--fetch-urls` – How many result URLs to fetch and scrape (default: 3).
-- `--agent` – Run a specific agent: `scraper`, `analyzer`, or `all` (default: `all`).
-- `--list-summaries` – List all saved raw summaries from database (no LLM required).
-- `--list-runs` – List all pipeline runs with event counts (no LLM required).
-- `--load-summary <id>` – Load and print a specific raw summary by ID (no LLM required).
-- `--cities` – Cities to scrape (default: all). Available: `monheim`, `langenfeld`, `leverkusen`, `hilden`, `dormagen`, `ratingen`, `solingen`, `haan`.
-- `--search-queries` – Custom search queries for finding events (optional).
-
-**Note:** The model to use depends on your `LLM_PROVIDER` in `.env`:
-- `LLM_PROVIDER=deepseek` (default): Uses `DEEPSEEK_MODEL` (e.g., `deepseek-chat`)
-- `LLM_PROVIDER=ollama`: Uses `LLM_MODEL` (e.g., `mistral`, `phi3`)
-
-**Examples:**
-
-```bash
-# Default (scrapes all cities and regional aggregators)
+# Scrape all cities (default)
 python main.py
 
 # Scrape specific cities
-python main.py --cities monheim langenfeld leverkusen
+python main.py --cities monheim solingen haan
 
 # Custom search queries
-python main.py --search-queries "jazz concerts NRW" "rock festivals Germany"
-
-# Combine cities and custom search
-python main.py --cities monheim langenfeld --search-queries "family events" "kids activities"
-
-# Specific location
-python main.py -l "Munich"
-
-# Verbose + custom model
-python main.py -l "Berlin" -m llama3.1 -v
+python main.py --search-queries "concerts this weekend" "jazz events"
 ```
 
-**Debugging (run individual agents):**
+---
+
+## Usage
+
+### CLI Options
 
 ```bash
-# Run only the scraper agent (saves raw summary to DB)
-python main.py --agent scraper --cities monheim langenfeld
+python main.py [OPTIONS]
 
-# Run the scraper with custom search queries
-python main.py --agent scraper --search-queries "concerts this weekend" "theater shows"
+Options:
+  -l, --location TEXT       Location for search (default: "Monheim 40789")
+  --cities TEXT             Cities to scrape (default: all)
+                            Available: monheim, langenfeld, leverkusen, hilden,
+                            dormagen, ratingen, solingen, haan
+  --search-queries TEXT     Custom search queries (optional)
+  --max-search INTEGER      Max search results (default: 8)
+  --fetch-urls INTEGER      Number of pages to scrape (default: 3)
+  --agent [scraper|analyzer|all] Run specific agent (default: all)
+  --model TEXT              LLM model name
+  -v, --verbose             Print raw summary and structured events
+  --no-db                   Skip saving to database
+  --list-summaries          List saved raw summaries
+  --list-runs               List pipeline runs with event counts
+  --load-summary INTEGER    Load specific raw summary by ID
+```
 
-# Run the analyzer agent with saved summary (interactive)
+### Common Workflows
+
+**Scrape specific cities:**
+
+```bash
+python main.py --cities monheim solingen
+```
+
+**Run scraper only (saves to DB for later analysis):**
+
+```bash
+python main.py --agent scraper --cities monheim
+```
+
+**Run analyzer on saved summary:**
+
+```bash
 python main.py --agent analyzer
+# Paste raw summary when prompted
+```
 
-# List all saved raw summaries
-python main.py --list-summaries
+**List recent runs:**
 
-# List all pipeline runs with event counts
+```bash
 python main.py --list-runs
+```
 
-# Load and view a specific raw summary by ID
+**View a specific raw summary:**
+
+```bash
 python main.py --load-summary 1
 ```
 
-## Architecture
+**Debug with verbose output:**
 
-| Step | Agent        | Input                    | Output                          |
-|------|--------------|--------------------------|---------------------------------|
-| 1    | **Scraper**  | Cities, search queries   | Raw event summary text          |
-| 2    | **Analyzer** | Raw event text           | Structured list (JSON-like)     |
+```bash
+python main.py --cities monheim -v
+```
 
-- **Scraper**: Scrapes fixed city-specific event pages and regional aggregators (rausgegangen.de, eventbrite.de, meetup.com), plus optional custom search queries via DuckDuckGo; LLM summarizes and includes **source** (URL/site) per event. Raw summaries are stored in `raw_summaries` table for debugging.
-- **Analyzer**: LLM extracts events into `{name, description, location, date, time, category, source}` for storage.
+---
 
-Events are stored in **`data/events.db`** for automation and later use. The database contains three tables:
-- `runs` – Pipeline runs tracking (agent, location, timestamp, event count)
-- `events` – Structured event data (name, description, location, date, time, category, source, run_id)
-- `raw_summaries` – Raw text output from scraper agent with metadata (cities, search queries, run_id) for debugging/replay
+## Configuration
 
-**Supported cities**: Monheim, Langenfeld, Leverkusen, Hilden, Dormagen, Ratingen, Solingen, Haan
+### Environment Variables (.env)
 
-## Project layout
+```bash
+# LLM Provider (deepseek or ollama)
+LLM_PROVIDER=deepseek
+
+# DeepSeek Configuration
+DEEPSEEK_API_KEY=your-api-key
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+LLM_MODEL=mistral
+
+# Default location for searches
+DEFAULT_LOCATION=Monheim 40789
+
+# Focus on family/children events
+FAMILY_FOCUS=true
+
+# Database path
+DB_PATH=data/events.db
+```
+
+### Supported Cities
+
+| City | Status | Notes |
+|------|--------|-------|
+| Monheim | ✅ Working | 2 URLs, 33+ events |
+| Solingen | ⚠️ Partial | Needs investigation |
+| Haan | ⚠️ Partial | Needs investigation |
+| Langenfeld | ❌ Broken | URLs need verification |
+| Leverkusen | ❌ Broken | URLs need verification |
+| Hilden | ❌ Broken | URLs need verification |
+| Dormagen | ❌ Broken | URLs need verification |
+| Ratingen | ❌ Broken | URLs need verification |
+
+### Supported Aggregators
+
+| Aggregator | Status | Notes |
+|------------|--------|-------|
+| Rausgegangen | ✅ Working | Regional events |
+| Meetup | ✅ Working | Community events |
+| Eventbrite | ❌ Blocked | Requires API access |
+
+---
+
+## Project Structure
 
 ```
-WeeklyMail/
-├── config.py           # LLM, Ollama, default location, DB path
-├── main.py             # CLI entry point (supports --agent, --cities, --search-queries, --list-summaries, --load-summary, --list-runs)
-├── pipeline.py         # Scraper -> Analyzer -> save to DB
-├── storage.py          # SQLite: events, raw_summaries, runs tables, CRUD operations
-├── data/
-│   └── events.db       # Created on first run (unless --no-db)
-├── agents/
-│   ├── tools.py        # search_web, fetch_page
-│   ├── scraper_agent.py # City-specific URLs + regional aggregators
-│   └── analyzer_agent.py
-├── scrapers/
+WebScraper/
+├── README.md              # This file - quick start and usage
+├── SCRAPER_GUIDE.md       # How scraper works + add new sources
+├── ANALYZER_GUIDE.md      # How analyzer works + customize prompts
+├── ARCHITECTURE.md        # System internals and data flow
+├── TROUBLESHOOTING.md     # Common issues and solutions
+├── config.py              # Configuration and environment variables
+├── main.py                # CLI entry point
+├── pipeline.py            # Pipeline orchestration
+├── storage.py             # SQLite database operations
+├── requirements.txt       # Python dependencies
+├── agents/                # Agent implementations
 │   ├── __init__.py
-│   ├── base.py         # BaseScraper abstract class
-│   ├── static.py       # Default static HTML scraper (requests + BeautifulSoup)
-│   ├── monheim.py      # Monheim.de-specific scraper (Playwright for dynamic content)
-│   ├── registry.py      # URL-to-scraper mapping
-│   └── README.md       # Scrapers module documentation
-└── README.md
+│   ├── scraper_agent.py   # Scraper agent (Agent 1)
+│   ├── analyzer_agent.py  # Analyzer agent (Agent 2)
+│   └── tools.py           # Web search and fetch tools
+├── rules/                 # URL rules and scrapers
+│   ├── base.py            # Base rule interface
+│   ├── registry.py        # URL-to-rule mapping
+│   └── aggregators/       # Per-site scrapers
+│       ├── __init__.py
+│       ├── eventbrite/
+│       ├── meetup/
+│       └── rausgegangen/
+├── data/                  # Database storage
+│   └── events.db          # SQLite database (created on run)
+├── logs/                  # Timestamped log files
+└── .env                   # Environment configuration (not in git)
 ```
 
-**Note**: If you have an existing `data/events.db` from a previous version, delete it before running to let the new schema be created with the `runs` table and foreign keys.
+---
+
+## Learn More
+
+- **[SCRAPER_GUIDE.md](SCRAPER_GUIDE.md)** - How the scraper works, URL rules system, adding new event sources
+- **[ANALYZER_GUIDE.md](ANALYZER_GUIDE.md)** - How the analyzer extracts structured data, customizing LLM prompts
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture, data flow, agent communication
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues, debugging tips, error resolution
+
+## Database Schema
+
+The `data/events.db` SQLite database contains:
+
+| Table | Purpose |
+|-------|---------|
+| `runs` | Pipeline run tracking (agent, location, timestamp) |
+| `events` | Structured event data (name, description, location, date, etc.) |
+| `raw_summaries` | Raw text from scraper (for debugging) |
+| `status` | Run status with metrics (duration, event counts) |
+
+---
+
+## Tech Stack
+
+- **LangChain** - LLM orchestration (OpenAI, Ollama integrations)
+- **DeepSeek** - Free cloud LLM (default)
+- **Ollama** - Local LLM option
+- **DuckDuckGo Search** - Web search
+- **Requests + BeautifulSoup** - HTTP and HTML parsing
+- **Playwright** - Dynamic content rendering
+- **SQLite** - Event storage
+- **Rich** - Terminal UI and progress bars

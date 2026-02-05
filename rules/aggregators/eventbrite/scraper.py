@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class EventbriteScraper(BaseRule):
+class EventbriteScraper(BaseScraper):
     """Scraper for Eventbrite.de event listings."""
 
     @classmethod

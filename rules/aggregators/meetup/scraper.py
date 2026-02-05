@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class MeetupScraper(BaseRule):
+class MeetupScraper(BaseScraper):
     """Scraper for Meetup.com event listings."""
 
     @classmethod

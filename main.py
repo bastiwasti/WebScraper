@@ -86,6 +86,11 @@ def main() -> None:
         help="List all pipeline runs with event counts.",
     )
     parser.add_argument(
+        "--full-run",
+        action="store_true",
+        help="Run as full pipeline (analyzer updates same run_id as scraper).",
+    )
+    parser.add_argument(
         "--load-summary",
         type=int,
         help="Load raw summary by ID and print it (for debugging).",
@@ -156,6 +161,7 @@ def main() -> None:
             save_to_db=not args.no_db,
             cities=args.cities,
             search_queries=args.search_queries,
+            full_run=args.full_run,
         )
 
         if args.verbose:
@@ -176,7 +182,7 @@ def main() -> None:
 
         if args.agent == "scraper":
             scraper = ScraperAgent(model=args.model)
-            raw_summary = scraper.run(
+            raw_summary, url_metrics, city_event_counts = scraper.run(
                 location=args.location,
                 max_search=args.max_search,
                 fetch_urls=args.fetch_urls,

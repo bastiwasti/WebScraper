@@ -9,6 +9,8 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from config import LLM_MODEL, OLLAMA_BASE_URL, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
+from storage import create_run
+
 
 SYSTEM_PROMPT = """You are a data analyst. You receive a text that describes local events (from web search/summaries).
 Your task is to extract every event and output a single JSON array of objects. Each object must have exactly these fields:
@@ -102,14 +104,32 @@ class AnalyzerAgent:
         
         return "other"
 
-    def run(self, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 5) -> list[dict[str, Any]]:
-        """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source).
+    def _infer_city_from_source(self, source: str, url_metrics: dict | None = None) -> str:
+        """Infer city from event source URL."""
+        if url_metrics:
+            for url, metrics in url_metrics.items():
+                if url in source or source in url:
+                    city = metrics.get('city', '')
+                    if city and city != 'aggregator':
+                        return city
+        
+        from rules import get_city_for_url, is_aggregator_url
+        city = get_city_for_url(source)
+        if city:
+            return city
+        if is_aggregator_url(source):
+            return 'aggregator'
+        return ''
+
+    def run(self, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 5, url_metrics: dict | None = None) -> list[dict[str, Any]]:
+        """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source, city).
         
         Args:
             raw_event_text: Raw text containing event information
             scraper_run_id: Run ID of the scraper agent (for linking)
             save_to_db: Whether to save events to database
             chunk_size: Number of events to process per LLM call (default: 5)
+            url_metrics: URL metrics from scraper containing city information
         """
         all_events = []
         chunks = self._split_into_chunks(raw_event_text, events_per_chunk=chunk_size)
@@ -121,13 +141,18 @@ class AnalyzerAgent:
             chain = self._prompt | self.llm | StrOutputParser()
             out = chain.invoke({"raw_event_text": chunk})
             events = self._parse_json_array(out)
+            
+            for event in events:
+                source = event.get("source", "")
+                city = self._infer_city_from_source(source, url_metrics)
+                event["city"] = city
+            
             all_events.extend(events)
             print(f"    Extracted {len(events)} events from chunk {i}")
 
         if save_to_db and all_events:
-            from storage import create_run, insert_events, update_run_status_analyzed, create_run_status, update_run_status_complete
-            run_id = create_run("analyzer", linked_run_id=scraper_run_id)
-            create_run_status(run_id, [])
+            from storage import insert_events, update_run_status_analyzed, update_run_status_complete, create_run
+            run_id = scraper_run_id if scraper_run_id else create_run("analyzer", linked_run_id=scraper_run_id)
             insert_events(all_events, run_id)
             
             valid_events = 0

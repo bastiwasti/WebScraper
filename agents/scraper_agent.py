@@ -260,7 +260,14 @@ class ScraperAgent:
                     url_breakdown[url] = url_metrics[url].copy()
                     
                     if events:
-                        all_parts.append(f"Page: {url}\nEvents: {len(events)} found")
+                        events_text = f"Page: {url}\nEvents: {len(events)} found\n"
+                        for event in events:
+                            events_text += f"- Event: {event.name}\n"
+                            events_text += f"  Date/Time: {event.date} {event.time}\n"
+                            events_text += f"  Location/Venue: {event.location or 'Not specified'}\n"
+                            events_text += f"  Description/Category: {event.description}\n"
+                            events_text += f"  Source: {event.source}\n"
+                        all_parts.append(events_text)
                     
                     logger.info(f"✓ {url} - {len(events)} events ({url_metrics[url]['elapsed']:.2f}s)")
                     
@@ -296,10 +303,13 @@ class ScraperAgent:
         max_search: int = 8,
         fetch_urls: int = 3,
         cities: list[str] | None = None,
-    ) -> str:
+    ) -> tuple[str, dict, dict]:
         """Search for events, fetch pages from fixed URLs, and return a summarized event text.
         
         Uses new rules/ system with Rich progress bars and structured logging.
+        
+        Returns:
+            tuple of (summary, url_metrics, city_event_counts)
         """
         location_query = location or DEFAULT_LOCATION or "the user's area"
         
@@ -321,9 +331,12 @@ class ScraperAgent:
         
         create_run_status(run_id, urls_to_track)
         
-        chain = self._prompt | self.llm | StrOutputParser()
-        summary = chain.invoke({"location_query": location_query, "raw_content": raw_content})
+        if not search_queries:
+            summary = raw_content
+        else:
+            chain = self._prompt | self.llm | StrOutputParser()
+            summary = chain.invoke({"location_query": location_query, "raw_content": raw_content})
         
         update_run_status_complete(run_id)
         
-        return summary
+        return (summary, url_metrics, city_event_counts)

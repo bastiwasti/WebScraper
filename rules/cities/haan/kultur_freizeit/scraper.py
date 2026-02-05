@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class HaanScraper(BaseRule):
+class HaanScraper(BaseScraper):
     """Scraper for Haan event pages."""
 
     @classmethod

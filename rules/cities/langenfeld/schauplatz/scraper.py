@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class SchauplatzScraper(BaseRule):
+class SchauplatzScraper(BaseScraper):
     """Scraper for Schauplatz event pages."""
 
     @classmethod

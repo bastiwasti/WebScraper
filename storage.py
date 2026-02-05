@@ -42,6 +42,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 duration REAL,
                 events_found INTEGER DEFAULT 0,
                 valid_events INTEGER DEFAULT 0,
+                full_run INTEGER DEFAULT 0,
                 FOREIGN KEY (run_id) REFERENCES runs(id),
                 FOREIGN KEY (linked_run_id) REFERENCES runs(id)
             )
@@ -61,6 +62,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 time TEXT,
                 category TEXT,
                 source TEXT,
+                city TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (run_id) REFERENCES runs(id)
             )
@@ -181,6 +183,7 @@ def get_runs(limit: int = 20, conn: sqlite3.Connection | None = None) -> list[di
 def create_run_status(
     run_id: int,
     urls: list[str],
+    full_run: bool = False,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     """Create a status row for a run."""
@@ -194,10 +197,10 @@ def create_run_status(
         urls_json = json.dumps(urls)
         cur = conn.execute(
             """
-            INSERT INTO status (run_id, urls, start_time)
-            VALUES (?, ?, ?)
+            INSERT INTO status (run_id, urls, start_time, full_run)
+            VALUES (?, ?, ?, ?)
             """,
-            (run_id, urls_json, now),
+            (run_id, urls_json, now, 1 if full_run else 0),
         )
         conn.commit()
         return cur.lastrowid or 0
@@ -267,7 +270,7 @@ def insert_events(
     conn: sqlite3.Connection | None = None,
 ) -> int:
     """
-    Insert structured events (name, description, location, date, time, source).
+    Insert structured events (name, description, location, date, time, source, city).
     Returns number of rows inserted.
     """
     own_conn = conn is None
@@ -283,8 +286,8 @@ def insert_events(
                 continue
             conn.execute(
                 """
-                INSERT INTO events (run_id, name, description, location, date, time, category, source, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO events (run_id, name, description, location, date, time, category, source, city, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -295,6 +298,7 @@ def insert_events(
                     (e.get("time") or "").strip(),
                     (e.get("category") or "other").strip(),
                     (e.get("source") or "").strip(),
+                    (e.get("city") or "").strip(),
                     now,
                 ),
             )

@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class SolingenScraper(BaseRule):
+class SolingenScraper(BaseScraper):
     """Scraper for Solingen-Live event pages."""
 
     @classmethod

@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-from rules.base import BaseRule
+from rules.base import BaseScraper
 
 
-class CityEventsScraper(BaseRule):
+class CityEventsScraper(BaseScraper):
     """Scraper for Langenfeld city event pages."""
 
     @classmethod
