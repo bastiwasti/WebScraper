@@ -376,6 +376,7 @@ def insert_events(
                 ),
             )
             count += 1
+            count += 1
         conn.commit()
         return count
     finally:
@@ -430,6 +431,7 @@ def get_events(
                 "time": r["time"] or "",
                 "category": r["category"] or "other",
                 "source": r["source"] or "",
+                "city": r["city"] or "",
                 "created_at": r["created_at"],
             }
             for r in rows

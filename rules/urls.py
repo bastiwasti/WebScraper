@@ -30,16 +30,13 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
         "default": "https://www.leverkusen.de",  # Fallback
     },
     "hilden": {
-        # URL needs verification - currently broken
-        "default": "https://www.hilden.de",
+        "default": "https://www.hilden.de/de/veranstaltungen/",
     },
     "dormagen": {
-        # URL needs verification - currently broken
-        "default": "https://www.dormagen.de",
+        "default": "https://www.dormagen.de/tourismus-freizeit/feste-veranstaltungen",
     },
     "ratingen": {
-        # URL needs verification - currently broken
-        "default": "https://www.ratingen.de",
+        "default": "https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell",
     },
 }
 

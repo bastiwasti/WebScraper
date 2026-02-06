@@ -48,14 +48,55 @@ class AnalyzerAgent:
             from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
                 model=model or DEEPSEEK_MODEL,
-                api_key=DEEPSEEK_API_KEY,
+                api_key=lambda: DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_BASE_URL,
                 temperature=0.0,
+                timeout=600,
             )
         self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
             ("human", USER_PROMPT),
         ])
+
+    def _extract_pre_structured_events(self, text: str) -> list[dict[str, Any]]:
+        """Extract JSON events from pre-structured text (from scraper LLM fallback)."""
+        events = []
+        
+        # Pattern to find JSON content between "- Event:" and "  Date/Time:" or next event
+        # This captures all text including markdown code fences
+        event_blocks = re.findall(r'- Event:\s*([\s\S]*?)\n\s*(?:- Event:|Date/Time:)', text)
+        
+        for event_block in event_blocks:
+            # Remove markdown code fences if present
+            event_block = re.sub(r'```json\s*', '', event_block)
+            event_block = re.sub(r'```\s*$', '', event_block)
+            event_block = event_block.strip()
+            
+            if not event_block:
+                continue
+            
+            try:
+                data = json.loads(event_block)
+                
+                # Handle both formats:
+                # 1. [{"name": "...", ...}, ...] (array of events)
+                # 2. {"events": [...]} (wrapper with events key)
+                # 3. {"name": "...", ...} (single event object)
+                
+                if isinstance(data, list):
+                    events.extend(data)
+                elif isinstance(data, dict):
+                    if "events" in data:
+                        events_data = data["events"]
+                        if isinstance(events_data, list):
+                            events.extend(events_data)
+                    else:
+                        # Single event object
+                        events.append(data)
+            except json.JSONDecodeError:
+                continue
+        
+        return events
 
     def _parse_json_array(self, text: str) -> list[dict[str, Any]]:
         """Try to extract a JSON array from the model output."""
@@ -74,8 +115,8 @@ class AnalyzerAgent:
         except json.JSONDecodeError:
             return []
 
-    def _split_into_chunks(self, raw_event_text: str, events_per_chunk: int = 5) -> list[str]:
-        """Split raw event text into chunks of events."""
+    def _split_into_chunks(self, raw_event_text: str, events_per_chunk: int = 3, max_chars: int = 5000) -> list[str]:
+        """Split raw event text into chunks with event and character limits."""
         events_pattern = r'\*\s+\*\*Event:\*\*'
         event_blocks = re.split(events_pattern, raw_event_text)
         
@@ -83,15 +124,34 @@ class AnalyzerAgent:
             return [raw_event_text]
         
         chunks = []
-        for i in range(1, len(event_blocks), events_per_chunk):
-            batch = event_blocks[i:i+events_per_chunk]
-            chunk = '\n*   **Event:**'.join([''] + batch)
-            chunks.append(chunk.strip())
+        current_chunk = ['']
+        current_chars = 0
+        
+        for i in range(1, len(event_blocks)):
+            block = event_blocks[i]
+            block_text = '\n*   **Event:**' + block
+            
+            if current_chars + len(block_text) > max_chars and current_chunk != ['']:
+                chunks.append('\n'.join(current_chunk).strip())
+                current_chunk = ['']
+                current_chars = 0
+            
+            current_chunk.append(block_text)
+            current_chars += len(block_text)
+            
+            if len(current_chunk) > events_per_chunk + 1:
+                chunks.append('\n'.join(current_chunk).strip())
+                current_chunk = ['']
+                current_chars = 0
+        
+        if current_chunk != ['']:
+            chunks.append('\n'.join(current_chunk).strip())
         
         return chunks
 
-    def _infer_category(self, description: str, name: str = "") -> str:
+    def _infer_category(self, description: str | None, name: str = "") -> str:
         """Infer category from event description and name."""
+        description = description or ""
         text = (description + " " + name).lower()
         
         category_keywords = {
@@ -149,7 +209,22 @@ class AnalyzerAgent:
             return city
         return ''
 
-    def run(self, run_id: int, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 5, url_metrics: dict | None = None) -> list[dict[str, Any]]:
+    def _deduplicate_events(self, events: list[dict]) -> list[dict]:
+        """Remove duplicate events based on name, location, and source."""
+        seen = set()
+        unique_events = []
+        for event in events:
+            if not event or not isinstance(event, dict):
+                continue
+            key = (str(event.get('name', '')).lower().strip(), 
+                    str(event.get('location', '')).lower().strip(),
+                    str(event.get('source', '')).lower().strip())
+            if key not in seen:
+                seen.add(key)
+                unique_events.append(event)
+        return unique_events
+
+    def run(self, run_id: int, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 3, max_chars: int = 5000, url_metrics: dict | None = None) -> list[dict[str, Any]]:
         """Analyze raw event text and return a list of structured event dicts (name, description, location, date, time, source, city).
 
         Args:
@@ -157,14 +232,45 @@ class AnalyzerAgent:
             raw_event_text: Raw text containing event information
             scraper_run_id: Run ID of the scraper agent (for linking)
             save_to_db: Whether to save events to database
-            chunk_size: Number of events to process per LLM call (default: 5)
+            chunk_size: Number of events to process per LLM call (default: 3)
+            max_chars: Maximum characters per chunk to prevent timeout (default: 5000)
             url_metrics: URL metrics from scraper containing city information
 
         Returns:
             List of structured event dicts.
         """
         all_events = []
-        chunks = self._split_into_chunks(raw_event_text, events_per_chunk=chunk_size)
+        
+        # First, try to extract pre-structured JSON events from scraper
+        pre_structured = self._extract_pre_structured_events(raw_event_text)
+        if pre_structured:
+            print(f"Found {len(pre_structured)} pre-structured events from scraper")
+            
+            for event in pre_structured:
+                # Normalize German field names to English database schema
+                normalized_event = self._normalize_field_names(event)
+                source = normalized_event.get("source", "")
+                city = self._infer_city_from_source(source, url_metrics)
+                normalized_event["city"] = city
+                # Infer category
+                category = self._infer_category(
+                    description=normalized_event.get("description", ""),
+                    name=normalized_event.get("name", "")
+                )
+                normalized_event["category"] = category
+                all_events.append(normalized_event)
+            
+            # Deduplicate events based on name, location, and source
+            before_dedup = len(all_events)
+            all_events = self._deduplicate_events(all_events)
+            after_dedup = len(all_events)
+            if before_dedup != after_dedup:
+                print(f"  Deduplicated: {before_dedup} -> {after_dedup} events (removed {before_dedup - after_dedup} duplicates)")
+            
+            return all_events
+        
+        # If no pre-structured events, use LLM analyzer
+        chunks = self._split_into_chunks(raw_event_text, events_per_chunk=chunk_size, max_chars=max_chars)
         
         print(f"Processing {len(chunks)} chunk(s) with {chunk_size} events each...")
         
@@ -176,34 +282,24 @@ class AnalyzerAgent:
             
             for event in events:
                 # Normalize German field names to English database schema
-                event = self._normalize_field_names(event)
-                source = event.get("source", "")
+                normalized_event = self._normalize_field_names(event)
+                source = normalized_event.get("source", "")
                 city = self._infer_city_from_source(source, url_metrics)
-                event["city"] = city
-            
-            all_events.extend(events)
+                normalized_event["city"] = city
+                # Infer category
+                category = self._infer_category(
+                    description=normalized_event.get("description", ""),
+                    name=normalized_event.get("name", "")
+                )
+                normalized_event["category"] = category
+                all_events.append(normalized_event)
             print(f"    Extracted {len(events)} events from chunk {i}")
-
-        if save_to_db and all_events:
-            from storage import insert_events, update_run_status_analyzed
-
-            # Use provided run_id or scraper_run_id
-            target_run_id = run_id if run_id else scraper_run_id
-
-            # Calculate totals
-            events_found = len(all_events)
-            valid_events = 0
-            for e in all_events:
-                if e.get("name") and e.get("date") and e.get("location") and e.get("source"):
-                    valid_events += 1
-
-            # Update status with ADD (not REPLACE)
-            update_run_status_analyzed(
-                target_run_id,
-                events_found,
-                valid_events,
-                linked_run_id=scraper_run_id,
-            )
-            insert_events(all_events, target_run_id)
-
+        
+        # Deduplicate events based on name, location, and source
+        before_dedup = len(all_events)
+        all_events = self._deduplicate_events(all_events)
+        after_dedup = len(all_events)
+        if before_dedup != after_dedup:
+            print(f"  Deduplicated: {before_dedup} -> {after_dedup} events (removed {before_dedup - after_dedup} duplicates)")
+        
         return all_events

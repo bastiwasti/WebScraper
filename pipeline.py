@@ -48,9 +48,7 @@ def run_pipeline(
 
     # Track pipeline start time
     start_time = datetime.utcnow().isoformat() + "Z"
-    if save_to_db:
-        create_run_status(run_id, [], full_run=False, start_time=start_time)
-
+    
     raw_summary, url_metrics, city_event_counts = scraper.run(
         location=loc,
         max_search=max_search,
@@ -59,6 +57,9 @@ def run_pipeline(
         search_queries=search_queries,
         run_id=run_id,
     )
+    
+    if save_to_db:
+        create_run_status(run_id, [], full_run=False, start_time=start_time)
 
     raw_summary_id = None
     if save_to_db:
@@ -69,7 +70,8 @@ def run_pipeline(
         raw_event_text=raw_summary,
         scraper_run_id=raw_summary_id,
         save_to_db=save_to_db,
-        chunk_size=5,
+        chunk_size=3,
+        max_chars=5000,
         url_metrics=url_metrics if save_to_db else None,
     )
 

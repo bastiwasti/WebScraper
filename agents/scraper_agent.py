@@ -86,9 +86,10 @@ class ScraperAgent:
             from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
                 model=model or DEEPSEEK_MODEL,
-                api_key=DEEPSEEK_API_KEY,
+                api_key=lambda: DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_BASE_URL,
                 temperature=0.0,
+                timeout=600,
             )
         self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
@@ -155,8 +156,8 @@ class ScraperAgent:
         fetch_urls: int = 3,
         cities: list[str] | None = None,
         urls_to_track: list[str] | None = None,
-        run_id: int = None,
-        logger: logging.Logger = None,
+        run_id: int | None = None,
+        logger: logging.Logger | None = None,
     ) -> tuple[str, dict, dict]:
         """Run multiple searches and scrape fixed URLs for events with Rich progress tracking.
         
@@ -197,8 +198,9 @@ class ScraperAgent:
         # 4. Respect fetch_urls limit
         urls_to_fetch = urls_to_fetch[:fetch_urls]
         
-        logger.info(f"Starting scraper for location: {location}")
-        logger.info(f"Total URLs to scrape: {len(urls_to_fetch)}")
+        if logger:
+            logger.info(f"Starting scraper for location: {location}")
+            logger.info(f"Total URLs to scrape: {len(urls_to_fetch)}")
         
         # Metrics storage
         url_metrics = {}
@@ -257,7 +259,8 @@ class ScraperAgent:
                             events_text += f"  Source: {event.source}\n"
                         all_parts.append(events_text)
                     
-                    logger.info(f"✓ {url} - {len(events)} events ({url_metrics[url]['elapsed']:.2f}s)")
+                    if logger:
+                        logger.info(f"✓ {url} - {len(events)} events ({url_metrics[url]['elapsed']:.2f}s)")
                     
                 except Exception as e:
                     url_metrics[url]['status'] = 'failed'
@@ -267,7 +270,8 @@ class ScraperAgent:
                     
                     url_breakdown[url] = url_metrics[url].copy()
                     
-                    logger.error(f"✗ {url} - ERROR: {e}")
+                    if logger:
+                        logger.error(f"✗ {url} - ERROR: {e}")
                 
                 progress.advance(task)
         
@@ -280,7 +284,8 @@ class ScraperAgent:
         # Log summary
         succeeded = sum(1 for m in url_metrics.values() if m['status'] == 'success')
         failed = sum(1 for m in url_metrics.values() if m['status'] == 'failed')
-        logger.info(f"Scraping complete: {succeeded} succeeded, {failed} failed, {grand_total} total events")
+        if logger:
+            logger.info(f"Scraping complete: {succeeded} succeeded, {failed} failed, {grand_total} total events")
         
         return ("\n\n---\n\n".join(all_parts), url_metrics, city_event_counts)
 
@@ -316,6 +321,7 @@ class ScraperAgent:
             fetch_urls=fetch_urls,
             cities=cities,
             urls_to_track=urls_to_track,
+            run_id=run_id,
             logger=logger,
         )
 
