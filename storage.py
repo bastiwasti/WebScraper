@@ -573,6 +573,41 @@ def get_raw_summary_by_id(summary_id: int, conn: sqlite3.Connection | None = Non
         if own_conn:
             conn.close()
 
+
+def get_raw_summary_by_run_id(run_id: int, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+    """Get raw summary associated with a specific run ID."""
+    import json
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        cur = conn.execute(
+            """
+            SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
+            FROM raw_summaries
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return {
+                "id": row["id"],
+                "location": row["location"] or "",
+                "max_search": row["max_search"],
+                "fetch_urls": row["fetch_urls"],
+                "cities": json.loads(row["cities"]) if row["cities"] else None,
+                "search_queries": json.loads(row["search_queries"]) if row["search_queries"] else None,
+                "raw_summary": row["raw_summary"],
+                "created_at": row["created_at"],
+            }
+        return None
+    finally:
+        if own_conn:
+            conn.close()
+ 
+
 __all__ = [
     "get_connection",
     "init_db",
@@ -588,4 +623,5 @@ __all__ = [
     "insert_raw_summary",
     "get_raw_summaries",
     "get_raw_summary_by_id",
+    "get_raw_summary_by_run_id",
 ]

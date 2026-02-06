@@ -89,6 +89,23 @@ def main() -> None:
         type=int,
         help="Load raw summary by ID and print it (for debugging).",
     )
+    parser.add_argument(
+        "--reanalyze-run",
+        type=int,
+        help="Re-analyze events from a specific scraper run ID (requires saved raw summary).",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=3,
+        help="Number of events to analyze per LLM call (default: 3).",
+    )
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=5000,
+        help="Maximum characters per chunk (default: 5000).",
+    )
     args = parser.parse_args()
 
     if args.list_runs:
@@ -136,6 +153,53 @@ def main() -> None:
             print(f"Search queries: {summary['search_queries']}")
         print()
         print(summary['raw_summary'])
+        sys.exit(0)
+
+    if args.reanalyze_run is not None:
+        from agents import AnalyzerAgent
+        from storage import get_raw_summary_by_run_id, create_run, insert_events
+
+        run_id_to_analyze = args.reanalyze_run
+        
+        raw_summary_data = get_raw_summary_by_run_id(run_id_to_analyze)
+        if not raw_summary_data:
+            print(f"Error: No raw summary found for run ID {run_id_to_analyze}", file=sys.stderr)
+            print("Run 'python3 main.py --list-runs' to see available runs.", file=sys.stderr)
+            sys.exit(1)
+        
+        raw_summary = raw_summary_data["raw_summary"]
+        print(f"Re-analyzing run {run_id_to_analyze} ({raw_summary_data.get('max_search')} max_search, {raw_summary_data.get('fetch_urls')} fetch_urls)")
+        print(f"Location: {raw_summary_data['location']}")
+        if raw_summary_data.get('cities'):
+            print(f"Cities: {', '.join(raw_summary_data['cities'])}")
+        print(f"Raw summary length: {len(raw_summary):,} characters\n")
+        
+        print(f"Running pipeline: ANALYZER agent")
+        print(f"LLM: {LLM_PROVIDER.upper()} | Model: {args.model} | DB: {not args.no_db}\n")
+        
+        analyzer = AnalyzerAgent(model=args.model)
+        new_run_id = create_run("analyzer", None)
+        
+        structured_events = analyzer.run(
+            new_run_id,
+            raw_summary,
+            save_to_db=not args.no_db,
+            chunk_size=args.chunk_size,
+            max_chars=args.max_chars,
+        )
+        
+        print("\n--- Structured events (Agent 2) ---")
+        print(structured_events)
+        
+        print(f"\nFound {len(structured_events)} events.")
+        
+        if not args.no_db and structured_events:
+            from config import DB_PATH
+            insert_events(structured_events, new_run_id)
+            print(f"Events saved to DB: {DB_PATH}")
+            print(f"Analyzer run ID: {new_run_id}")
+            print(f"Re-analyzed from scraper run: {run_id_to_analyze}")
+        
         sys.exit(0)
 
     print(f"Running pipeline: {args.agent.upper()} agent")
@@ -198,7 +262,8 @@ def main() -> None:
         elif args.agent == "analyzer":
             analyzer = AnalyzerAgent(model=args.model)
             raw_summary = input("Paste raw summary text:\n")
-            structured_events = analyzer.run(raw_summary, save_to_db=not args.no_db)
+            run_id = create_run("analyzer", None)
+            structured_events = analyzer.run(run_id, raw_summary, save_to_db=not args.no_db)
             print("--- Structured events (Agent 2) ---")
             print(structured_events)
 
