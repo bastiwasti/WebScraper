@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from rules.base import BaseRule, Event
 
 
-class RatingenRegex(BaseRule):
+class VeranStaltungskalenderRegex(BaseRule):
     """Regex parser for Ratingen veranstaltungskalender events.
     
     Handles calendar-based event structure.
@@ -69,7 +69,7 @@ class RatingenRegex(BaseRule):
     def _is_within_14_days(self, date: str) -> bool:
         """Check if event date is within 14 days from today."""
         if not date:
-            return True
+            return False
         
         try:
             # Parse DD.MM.YYYY
@@ -79,11 +79,11 @@ class RatingenRegex(BaseRule):
                 days_diff = (dt.date() - self.today.date()).days
                 return 0 <= days_diff <= 14
         except Exception:
-            return True
+            return False
 
-    def _infer_category(self, title: str, description: str) -> str:
-        """Infer category from title and description."""
-        text = (title + " " + description).lower()
+    def _infer_category(self, description: str, name: str = "") -> str:
+        """Infer category from event description and name."""
+        text = (description + " " + name).lower()
         
         if any(word in text for word in ["film", "kino", "film", "cinema"]):
             return "Film"
@@ -117,7 +117,7 @@ class RatingenRegex(BaseRule):
             return None
         
         # Infer category
-        category = self._infer_category(title, description)
+        category = self._infer_category(description, title)
         
         return Event(
             name=title,

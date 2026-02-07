@@ -3,7 +3,7 @@
 from rules.base import BaseScraper
 
 
-class RatingenScraper(BaseScraper):
+class VeranStaltungskalenderScraper(BaseScraper):
     """Scraper for Ratingen veranstaltungskalender page.
     
     Uses requests for static HTML content.

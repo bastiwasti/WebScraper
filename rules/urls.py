@@ -35,6 +35,9 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     "dormagen": {
         "default": "https://www.dormagen.de/tourismus-freizeit/feste-veranstaltungen",
     },
+    "ratingen": {
+        "veranstaltungskalender": "https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell",
+    },
 }
 
 
