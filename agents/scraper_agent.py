@@ -199,10 +199,11 @@ class ScraperAgent:
         
         # 4. Respect fetch_urls limit
         urls_to_fetch = urls_to_fetch[:fetch_urls]
+        total_urls = len(urls_to_fetch)
         
         if logger:
             logger.info(f"Starting scraper for location: {location}")
-            logger.info(f"Total URLs to scrape: {len(urls_to_fetch)}")
+            logger.info(f"Total URLs to scrape: {total_urls}")
         
         # Metrics storage
         url_metrics = {}
@@ -210,6 +211,10 @@ class ScraperAgent:
         url_breakdown = {}
         grand_total = 0
         console = Console()
+        
+        console.print(f"[bold cyan]Starting scraper:[/bold cyan] {location}")
+        console.print(f"[bold cyan]Total URLs to scrape:[/bold cyan] {total_urls}")
+        console.print()
         
         # 5. Create progress bar and scrape
         with Progress(
@@ -220,10 +225,11 @@ class ScraperAgent:
             TimeRemainingColumn(),
             console=console
         ) as progress:
-            task = progress.add_task("[cyan]Scraping URLs...", total=len(urls_to_fetch))
+            task = progress.add_task("[cyan]Scraping URLs...", total=total_urls)
             
-            for url in urls_to_fetch:
-                progress.update(task, description=f"[cyan]{url}")
+            for idx, url in enumerate(urls_to_fetch, 1):
+                city = get_city_for_url(url) or 'aggregator'
+                progress.update(task, description=f"[cyan]{idx}/{total_urls} - {city.capitalize()} - {url[:60]}")
                 
                 # Track metrics
                 url_metrics[url] = {
@@ -249,6 +255,9 @@ class ScraperAgent:
                     city = url_metrics[url]['city']
                     city_event_counts[city] = city_event_counts.get(city, 0) + len(events)
                     grand_total += len(events)
+                    
+                    # Print events found to console
+                    console.print(f"[green]✓[/green] [cyan]{city.capitalize()}[/cyan]: [yellow]{len(events)} events[/yellow] from [magenta]{url[:60]}[/magenta] ([blue]{url_metrics[url]['elapsed']:.2f}s[/blue])")
                     
                     url_breakdown[url] = url_metrics[url].copy()
                     
