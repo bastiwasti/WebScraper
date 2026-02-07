@@ -457,7 +457,6 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 def insert_raw_summary(
     location: str,
     max_search: int,
-    fetch_urls: int,
     raw_summary: str,
     run_id: int | None = None,
     conn: sqlite3.Connection | None = None,
@@ -476,10 +475,10 @@ def insert_raw_summary(
         queries_json = json.dumps(search_queries) if search_queries else None
         cur = conn.execute(
             """
-            INSERT INTO raw_summaries (run_id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO raw_summaries (run_id, location, max_search, cities, search_queries, raw_summary, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (run_id, location or "", max_search, fetch_urls, cities_json, queries_json, raw_summary, now),
+            (run_id, location or "", max_search, cities_json, queries_json, raw_summary, now),
         )
         conn.commit()
         return cur.lastrowid or 0

@@ -114,7 +114,7 @@ All 4 remaining cities tested successfully without timeout. Ready for full run t
 
 **Command to test**:
 ```bash
-python main.py --full-run --fetch-urls 11
+python main.py --full-run
 ```
 
 ---
@@ -806,36 +806,6 @@ def _extract_pre_structured_events(self, text: str):
 - **Performance**: Bypass LLM when possible - 50-70% speedup achieved
 
 ---
-
-## Error #006 - Incorrect Understanding of --fetch-urls Parameter
-**Date**: 2026-02-06
-**Task**: Explaining how --fetch-urls flag works to user
-
-### Context
-User asked: "what does fetch urls actually do.."
-Initially gave incorrect/wrong explanation about URL limits
-
-### Root Cause
-Didn't check actual implementation before answering. Made assumptions about what the parameter does rather than reading code.
-
-### Solution (Should Have Done First)
-```python
-# Check implementation in pipeline.py or scraper_agent.py:
-def run_pipeline(
-    fetch_urls: int = 3,  # Limits URLs to scrape
-    ...
-):
-    urls_to_fetch = urls_to_fetch[:fetch_urls]  # Slices available URLs
-```
-
-### Lessons Learned
-- **Read before explain**: Always verify implementation before explaining behavior
-- **Check source**: Look at actual code in pipeline.py, scraper_agent.py
-- **Test mental model**: Verify understanding with small test commands
-- **Documentation gaps**: ARCHITECTURE.md doesn't explain CLI parameters well
-
----
-
 ## General Patterns and Prevention Strategies
 
 ### Pattern 1: Type Mismatches with LangChain

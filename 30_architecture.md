@@ -509,7 +509,7 @@ Prompts are defined in agent files and can be customized:
 class MyAgent:
     def __init__(self, model: str):
         self.llm = ...
-
+    
     def run(self, input_data):
         # Implementation
         return output
@@ -522,7 +522,7 @@ def run_my_agent(input_data):
 
 ### Adding New Scrapers
 
-See [SCRAPER_GUIDE.md](SCRAPER_GUIDE.md#adding-a-new-event-source)
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for step-by-step instructions on adding new city scrapers.
 
 ### Custom Storage Backends
 
@@ -563,6 +563,5 @@ def insert_events(events, run_id):
 - **Source Code**: https://github.com/your-repo/WebScraper
 - **Dependencies**: `requirements.txt`
 - **Configuration**: `config.py`
-- **SCRAPER_GUIDE**: [SCRAPER_GUIDE.md](SCRAPER_GUIDE.md)
-- **ANALYZER_GUIDE**: [ANALYZER_GUIDE.md](ANALYZER_GUIDE.md)
-- **TROUBLESHOOTING**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- **AGENT_GUIDE**: [AGENT_GUIDE.md](AGENT_GUIDE.md)
+- **SETUP_GUIDE**: [SETUP_GUIDE.md](SETUP_GUIDE.md)

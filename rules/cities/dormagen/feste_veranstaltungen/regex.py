@@ -27,80 +27,63 @@ class DormagenRegex(BaseRule):
         """Return regex patterns for dormagen events."""
         patterns = [
             re.compile(
-                r'<div class="event-item"[^>]*>\s*'  # Event items
-                r'<h2[^>]*class="event-title"[^>]*>([^<]+)</h2>\s*'  # Event title
-                r'Nächster Termin:\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})\s*'  # Date
-                r'Am\s+(\d{2}:\d{2})\.(\d{4})\s*'  # Date with time
-                r'<div class="event-location"[^>]*>\s*<span class="location"[^>]*>([^<]+)</span>\s*'  # Location
-                r'<div class="event-time"[^>]*>\s*<span[^>]*class="time"[^>]*>([^<]+)</span>\s*'  # Time
-                r'<div class="event-description"[^>]*>\s*<div class="description"[^>]*>\s*<p[^>]*>([^<]+)</p>\s*</div>\s*</div>'  # Description
+                r'kid":\s*"kid"\s*'
+                '  # Match "kid" followed by ": " + kid (e.g. "kid": "6003")
+            ),
+            re.compile(r'"kid":\s*"kid"\s*'"'),
+            re.compile(r'"startDate":\s*"startDate"\s*'
+                '  # Match "startDate" followed by ": " + date (e.g., "startDate": "2025-02-12T08:30")
+            ),
+            re.compile(r'"endDate":\s*"endDate"\s*'
+                '  # Match "endDate" followed by ": " + date (e.g., "endDate": "2025-02-12T10:30")
+            ),
+            re.compile(r'"title":\s*"title"\s*'
+                '  # Match "title" followed by ": " + title
+            ),
+            re.compile(r'"location":\s*"location"\s*'
+                '  # Match "location" followed by ": " + location
+            ),
+            re.compile(r'"description":\s*"description"\s*'
+                '  # Match "description" followed by ": " + description
+            ),
+            re.compile(r'"link":\s*"link"\s*'
+                '  # Match "link" followed by ": " + link
             ),
         ]
+        
         return patterns
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
         """Handle Dormagen pages."""
         return "dormagen.de" in url and "feste-veranstaltungen" in url
-
-    def _parse_date(self, date_str: str) -> str:
-        """Parse date from various formats to DD.MM.YYYY.
+    
+    def get_regex_patterns(self) -> List[re.Pattern]:
+        """Return regex patterns for Dormagen events (fallback only)."""
+        patterns = [
+            re.compile(r'"kid":\s*"kid"\s*"kid"'),
+            re.compile(r'"startDate":\s*"start"\s*"end"'),
+            re.compile(r'"title":\s*"title"\s*"location"\s*"description"\s*"source"\s*"category"'),
+        ]
+        return patterns
+    
+    def _create_event_from_match(self, match: tuple) -> Event | None:
+        """Create Event from Dormagen regex match tuple."""
+        date = match[0].strip() if len(match) > 0 else ""
+        name = match[1].strip() if len(match) > 1 else ""
         
-        Handles:
-        - DD.MM.YYYY (e.g., 04.02.2026)
-        - D.M.YYYY (e.g., 4.2.2026)
-        """
-        if not date_str:
-            return ""
+        if not name or not date:
+            return None
         
-        date_str = date_str.strip()
-        
-        # Try DD.MM.YYYY format first
-        try:
-            if re.match(r'\d{1,2}\.\d{1,2}\.\d{4}', date_str):
-                parts = date_str.split('.')
-                if len(parts) == 3:
-                    day, month, year = parts
-                    return date_str
-        except Exception:
-            pass
-        
-        return date_str
-
-    def _is_within_14_days(self, date_str: str) -> bool:
-        """Check if event date is within 14 days from today."""
-        if not date_str:
-            return True
-        
-        try:
-            parts = date_str.split('.')
-            if len(parts) == 3:
-                day, month, year = parts
-                try:
-                    dt = datetime(int(year), int(month), int(day))
-                    days_diff = (dt.date() - self.today.date()).days
-                    return 0 <= days_diff <= 14
-                except ValueError:
-                    return True
-        except Exception:
-            return True
-
-    def _infer_category(self, title: str, description: str) -> str:
-        """Infer category from title and description."""
-        text = (title + " " + description).lower()
-        
-        if any(word in text for word in ["film", "kino", "film", "cinema"]):
-            return "Film"
-        elif any(word in text for word in ["konzert", "concert", "musik", "band"]):
-            return "Musik"
-        elif any(word in text for word in ["theater", "schauspiel", "oper"]):
-            return "Theater"
-        elif any(word in text for word in ["sport", "fußball", "turnier"]):
-            return "Sport"
-        elif any(word in text for word in ["ausstellung", "kunst", "auslehung", "museum"]):
-            return "Kunst"
-        
-        return "other"
+        return Event(
+            name=name,
+            description="",
+            location="",
+            date=date,
+            time="",
+            source=self.url,
+            category="other",
+        )
 
     def _create_event_from_match(self, match: tuple) -> Event | None:
         """Create Event from regex match tuple."""

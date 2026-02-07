@@ -56,10 +56,8 @@ def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> list[Event
     try:
         scraper = create_scraper(url)
         content = scraper.fetch()
-
         regex_parser = create_regex(url)
         events = regex_parser.extract_events(content, use_llm_fallback)
-
         return events
     except Exception as e:
         print(f"Error fetching events from {url}: {e}")

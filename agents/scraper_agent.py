@@ -155,7 +155,7 @@ class ScraperAgent:
         location: str,
         search_queries: list[str] | None = None,
         max_search: int = 6,
-        fetch_urls: int = 3,
+        fetch_urls: int = 999,
         cities: list[str] | None = None,
         urls_to_track: list[str] | None = None,
         run_id: int | None = None,

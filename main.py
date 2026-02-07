@@ -31,12 +31,6 @@ def main() -> None:
         help="Max number of search results to use (default: 8).",
     )
     parser.add_argument(
-        "--fetch-urls",
-        type=int,
-        default=3,
-        help="Number of pages to fetch and scrape (default: 3).",
-    )
-    parser.add_argument(
         "--cities",
         nargs="*",
         help="Cities to scrape (default: all). Available: monheim, langenfeld, leverkusen, hilden, dormagen, ratingen, solingen, haan.",
@@ -209,7 +203,6 @@ def main() -> None:
         raw_summary, structured_events = run_pipeline(
             location=args.location,
             max_search=args.max_search,
-            fetch_urls=args.fetch_urls,
             model=args.model,
             save_to_db=not args.no_db,
             cities=args.cities,
@@ -238,7 +231,6 @@ def main() -> None:
             raw_summary, url_metrics, city_event_counts = scraper.run(
                 location=args.location,
                 max_search=args.max_search,
-                fetch_urls=args.fetch_urls,
                 cities=args.cities,
                 search_queries=args.search_queries,
             )
@@ -250,7 +242,6 @@ def main() -> None:
                 summary_id = insert_raw_summary(
                     location=args.location,
                     max_search=args.max_search,
-                    fetch_urls=args.fetch_urls,
                     raw_summary=raw_summary,
                     run_id=run_id,
                     cities=args.cities,

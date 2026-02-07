@@ -56,11 +56,10 @@ python main.py [OPTIONS]
 Options:
   -l, --location TEXT       Location for search (default: "Monheim 40789")
   --cities TEXT             Cities to scrape (default: all)
-                            Available: monheim, langenfeld, leverkusen, hilden,
-                            dormagen, ratingen, solingen, haan
+                             Available: monheim, langenfeld, leverkusen, hilden,
+                             dormagen, ratingen, haan
   --search-queries TEXT     Custom search queries (optional)
   --max-search INTEGER      Max search results (default: 8)
-  --fetch-urls INTEGER      Number of pages to scrape (default: 3)
   --agent [scraper|analyzer|all] Run specific agent (default: all)
   --model TEXT              LLM model name
   -v, --verbose             Print raw summary and structured events
@@ -136,16 +135,9 @@ DB_PATH=data/events.db
 
 ### Supported Cities
 
-| City | Status | Notes |
-|------|--------|-------|
-| Monheim | ✅ Working | 2 URLs, 33+ events |
-| Solingen | ⚠️ Partial | Needs investigation |
-| Haan | ⚠️ Partial | Needs investigation |
-| Langenfeld | ❌ Broken | URLs need verification |
-| Leverkusen | ❌ Broken | URLs need verification |
-| Hilden | ❌ Broken | URLs need verification |
-| Dormagen | ❌ Broken | URLs need verification |
-| Ratingen | ❌ Broken | URLs need verification |
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for the complete list of supported cities and how to add new ones.
+
+**Currently Supported**: monheim, langenfeld, solingen, haan, leverkusen, hilden, dormagen, ratingen
 ---
 
 ## Project Structure
@@ -153,10 +145,10 @@ DB_PATH=data/events.db
 ```
 WebScraper/
 ├── README.md              # This file - quick start and usage
-├── SCRAPER_GUIDE.md       # How scraper works + add new sources
-├── ANALYZER_GUIDE.md      # How analyzer works + customize prompts
+├── AGENT_GUIDE.md       # How scraper & analyzer agents work
+├── SETUP_GUIDE.md        # How to add new city scrapers
 ├── ARCHITECTURE.md        # System internals and data flow
-├── TROUBLESHOOTING.md     # Common issues and solutions
+├── AGENT_ERRORS.md       # Historical error log (git history)
 ├── config.py              # Configuration and environment variables
 ├── main.py                # CLI entry point
 ├── pipeline.py            # Pipeline orchestration
@@ -167,10 +159,15 @@ WebScraper/
 │   ├── scraper_agent.py   # Scraper agent (Agent 1)
 │   ├── analyzer_agent.py  # Analyzer agent (Agent 2)
 │   └── tools.py           # Web search and fetch tools
- ├── rules/                 # URL rules and scrapers
- │   ├── base.py            # Base rule interface
- │   ├── registry.py        # URL-to-rule mapping
- │   └── urls.py            # CITY_URLS, URL helper functions
+├── rules/                 # URL rules and scrapers
+│   ├── base.py            # Base rule interface
+│   ├── registry.py        # URL-to-rule mapping
+│   ├── urls.py            # CITY_URLS, URL helper functions
+│   └── cities/            # City-specific scrapers
+│       └── {city}/{subfolder}/
+│           ├── scraper.py
+│           ├── regex.py
+│           └── __init__.py
 ├── data/                  # Database storage
 │   └── events.db          # SQLite database (created on run)
 ├── logs/                  # Timestamped log files
@@ -181,10 +178,9 @@ WebScraper/
 
 ## Learn More
 
-- **[SCRAPER_GUIDE.md](SCRAPER_GUIDE.md)** - How the scraper works, URL rules system, adding new event sources
-- **[ANALYZER_GUIDE.md](ANALYZER_GUIDE.md)** - How the analyzer extracts structured data, customizing LLM prompts
+- **[AGENT_GUIDE.md](AGENT_GUIDE.md)** - How both scraper & analyzer agents work, LLM integration
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Step-by-step guide to add new city scrapers with navigation
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture, data flow, agent communication
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues, debugging tips, error resolution
 
 ## Database Schema
 
