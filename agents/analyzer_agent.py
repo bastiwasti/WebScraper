@@ -227,18 +227,32 @@ class AnalyzerAgent:
         return ''
 
     def _deduplicate_events(self, events: list[dict]) -> list[dict]:
-        """Remove duplicate events based on name, location, and source."""
+        """Remove duplicate events based on event ID if available, otherwise name, location, and source."""
         seen = set()
         unique_events = []
+        
         for event in events:
             if not event or not isinstance(event, dict):
                 continue
-            key = (str(event.get('name', '')).lower().strip(), 
-                    str(event.get('location', '')).lower().strip(),
-                    str(event.get('source', '')).lower().strip())
+            
+            # Try to use event ID first (if provided by scraper)
+            event_id = event.get('id', '')
+            name = str(event.get('name', '')).lower().strip()
+            location = str(event.get('location', '')).lower().strip()
+            source = str(event.get('source', '')).lower().strip()
+            
+            # Create unique key:
+            # - If event has ID: use source + ID
+            # - Otherwise: use (name, location, source) tuple
+            if event_id:
+                key = f"{source}::{event_id}"
+            else:
+                key = (name, location, source)
+            
             if key not in seen:
                 seen.add(key)
                 unique_events.append(event)
+        
         return unique_events
 
     def run(self, run_id: int, raw_event_text: str, scraper_run_id: int | None = None, save_to_db: bool = False, chunk_size: int = 3, max_chars: int = 5000, url_metrics: dict | None = None) -> list[dict[str, Any]]:

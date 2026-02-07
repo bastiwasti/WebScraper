@@ -25,6 +25,8 @@ from rules import (
     get_city_for_url,
     fetch_events_from_url,
     CITY_URLS,
+    create_scraper,
+    create_regex,
 )
 
 
@@ -234,6 +236,7 @@ class ScraperAgent:
                 }
                 
                 try:
+                    # Extract events via regex (with LLM fallback)
                     events = fetch_events_from_url(url, use_llm_fallback=True)
                     
                     # Update metrics
@@ -249,6 +252,7 @@ class ScraperAgent:
                     
                     url_breakdown[url] = url_metrics[url].copy()
                     
+                    # Add formatted event text to parts
                     if events:
                         events_text = f"Page: {url}\nEvents: {len(events)} found\n"
                         for event in events:
