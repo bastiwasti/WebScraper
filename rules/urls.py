@@ -18,9 +18,9 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
         "city_events": "https://www.langenfeld.de/Startseite/Aktuelles-und-Information/Veranstaltungen.htm",
         "schauplatz": "https://schauplatz.de/",
     },
-    "solingen": {
-        "live": "https://www.solingen-live.de/",
-    },
+    # "solingen": {  # Network block - Connection refused
+    #     "live": "https://www.solingen-live.de/",
+    # },
     "haan": {
         "kultur_freizeit": "https://www.haan.de/Kultur-Freizeit/Veranstaltungen",
     },
@@ -34,9 +34,6 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     },
     "dormagen": {
         "default": "https://www.dormagen.de/tourismus-freizeit/feste-veranstaltungen",
-    },
-    "ratingen": {
-        "default": "https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell",
     },
 }
 
