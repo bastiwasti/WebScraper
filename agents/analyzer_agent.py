@@ -163,6 +163,7 @@ class AnalyzerAgent:
     def _infer_category(self, description: str | None, name: str = "") -> str:
         """Infer category from event description and name."""
         description = description or ""
+        name = name or ""
         text = (description + " " + name).lower()
         
         category_keywords = {
