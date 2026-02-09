@@ -2,6 +2,33 @@
 
 This document describes the console output system used in WebScraper, including Rich library usage, print patterns, and how to modify output tables.
 
+## Current Architecture (Working System)
+
+### Component Responsibilities
+
+| Component | File | Responsibility |
+|-----------|-------|---------------|
+| **Scraper** | `agents/scraper_agent.py` | Fetches HTML content from URLs |
+| **Analyzer** | `agents/analyzer_agent.py` | Extracts events from HTML using regex or LLM |
+| **Rules** | `rules/cities/*/{scraper,regex}.py` | City-specific scrapers and regex parsers |
+
+### Data Flow
+
+```
+URLs
+  ↓
+ScraperAgent.run()
+  ↓
+fetch_events_from_url(url)  (from rules/__init__.py)
+  ↓
+Returns: (list[Event], extraction_method)
+    - extraction_method = "regex" OR "llm"
+  ↓
+AnalyzerAgent.run()
+  ↓
+Per-URL Breakdown Table (3 columns)
+```
+
 ## Table of Contents
 
 - [Overview](#overview)
