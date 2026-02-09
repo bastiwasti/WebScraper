@@ -6,7 +6,6 @@ from storage import insert_events, insert_raw_summary, create_run, update_run_st
 def run_pipeline(
     location: str = "",
     max_search: int = 8,
-    fetch_urls: int = 3,
     model: str | None = None,
     base_url: str | None = None,
     save_to_db: bool = True,
@@ -52,18 +51,17 @@ def run_pipeline(
     raw_summary, url_metrics, city_event_counts = scraper.run(
         location=loc,
         max_search=max_search,
-        fetch_urls=fetch_urls,
         cities=cities,
         search_queries=search_queries,
         run_id=run_id,
     )
     
     if save_to_db:
-        create_run_status(run_id, [], full_run=False, start_time=start_time)
+        # Calculate total regex events from city_event_counts
+        regex_events_total = sum(count for key, count in city_event_counts.items() if key.endswith('_regex'))
+        create_run_status(run_id, [], full_run=False, start_time=start_time, events_regex=regex_events_total)
 
     raw_summary_id = None
-    if save_to_db:
-        raw_summary_id = insert_raw_summary(loc, max_search, fetch_urls, raw_summary, run_id, cities=cities, search_queries=search_queries)
 
     structured_events = analyzer.run(
         run_id=run_id,
@@ -81,22 +79,28 @@ def run_pipeline(
 
         # Calculate totals
         events_found = len(structured_events)
-        valid_events = 0
-        for e in structured_events:
-            if e.get("name") and e.get("date") and e.get("location") and e.get("source"):
-                valid_events += 1
-
+        valid_events = sum(1 for e in structured_events if e.get("name") and e.get("date") and e.get("location") and e.get("source"))
+        
+        # Track LLM events (events structured by analyzer)
+        llm_events_total = valid_events
+        
+        # Calculate regex events total from city_event_counts (from scraper)
+        # Total events from scraper = sum of all city event counts
+        regex_events_total = sum(city_event_counts.values())
+        
         # Update status with ADD (not REPLACE)
         update_run_status_analyzed(
             run_id,
             events_found,
             valid_events,
+            events_regex=regex_events_total,
+            events_llm=llm_events_total,
             linked_run_id=raw_summary_id,
         )
         insert_events(structured_events, run_id)
-
+        
         # Track pipeline end time
         end_time = datetime.utcnow().isoformat() + "Z"
         update_run_status_complete(run_id, end_time=end_time)
-
+    
     return raw_summary, structured_events

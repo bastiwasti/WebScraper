@@ -116,7 +116,9 @@ class ScraperAgent:
             table.add_row(url[:50], f"[{status_style}]{status}", events, time_str)
         
         console.print(table)
-
+        
+        # Print grand total (including LLM-extracted events)
+        
     def _print_final_summary(self, city_event_counts: dict, url_breakdown: dict, grand_total: int, console: Console):
         """Print Rich table with event counts by city and per-URL breakdown."""
         
@@ -130,23 +132,24 @@ class ScraperAgent:
         
         table.add_row("", "")
         table.add_row("[bold]Grand Total", f"[bold green]{grand_total}")
-        console.print(table)
         
         # Per-URL breakdown table
         if url_breakdown:
             breakdown_table = Table(title="Per-URL Breakdown", show_header=True, header_style="bold magenta")
             breakdown_table.add_column("URL", style="cyan", width=50)
-            breakdown_table.add_column("Events", justify="right", width=8)
+            breakdown_table.add_column("Events (Regex)", justify="right", width=12)
+            breakdown_table.add_column("Events (LLM)", justify="right", width=10)
             breakdown_table.add_column("City", style="yellow", width=15)
             breakdown_table.add_column("Status", justify="center", width=8)
             
             for url, metrics in url_breakdown.items():
                 status_symbol = "✓" if metrics['status'] == 'success' else "✗"
                 status_text = "Success" if metrics['status'] == 'success' else metrics['status']
-                events = str(metrics['events_found'])
+                events_regex = str(metrics.get('events_regex', 0))
+                events_llm = str(metrics.get('events_found', 0) - metrics.get('events_regex', 0))
                 city = metrics['city'].capitalize()
                 
-                breakdown_table.add_row(url[:50], events, city, f"{status_symbol} {status_text}")
+                breakdown_table.add_row(url[:50], events_regex, events_llm, city, f"{status_symbol} {status_text}")
             
             console.print(breakdown_table)
 
@@ -197,24 +200,13 @@ class ScraperAgent:
                             urls_to_fetch.append(u)
                             urls_to_track.append(u)
         
-        # 4. Respect fetch_urls limit
-        urls_to_fetch = urls_to_fetch[:fetch_urls]
-        total_urls = len(urls_to_fetch)
-        
-        if logger:
-            logger.info(f"Starting scraper for location: {location}")
-            logger.info(f"Total URLs to scrape: {total_urls}")
-        
+
         # Metrics storage
         url_metrics = {}
         city_event_counts = {}
         url_breakdown = {}
         grand_total = 0
         console = Console()
-        
-        console.print(f"[bold cyan]Starting scraper:[/bold cyan] {location}")
-        console.print(f"[bold cyan]Total URLs to scrape:[/bold cyan] {total_urls}")
-        console.print()
         
         # 5. Create progress bar and scrape
         with Progress(
@@ -225,11 +217,11 @@ class ScraperAgent:
             TimeRemainingColumn(),
             console=console
         ) as progress:
-            task = progress.add_task("[cyan]Scraping URLs...", total=total_urls)
+            task = progress.add_task("[cyan]Scraping URLs...", total=len(urls_to_fetch))
             
             for idx, url in enumerate(urls_to_fetch, 1):
                 city = get_city_for_url(url) or 'aggregator'
-                progress.update(task, description=f"[cyan]{idx}/{total_urls} - {city.capitalize()} - {url[:60]}")
+                progress.update(task, description=f"[cyan]{idx}/{len(urls_to_fetch)} - {city.capitalize()} - {url[:60]}")
                 
                 # Track metrics
                 url_metrics[url] = {
@@ -243,17 +235,24 @@ class ScraperAgent:
                 
                 try:
                     # Extract events via regex (with LLM fallback)
-                    events = fetch_events_from_url(url, use_llm_fallback=True)
+                    events, extraction_method = fetch_events_from_url(url, use_llm_fallback=True)
                     
                     # Update metrics
                     url_metrics[url]['status'] = 'success' if events else 'no_events'
                     url_metrics[url]['events_found'] = len(events)
+                    url_metrics[url]['events_regex'] = len(events) if extraction_method == 'regex' else 0
+                    url_metrics[url]['extraction_method'] = extraction_method
                     url_metrics[url]['end_time'] = time.time()
                     url_metrics[url]['elapsed'] = url_metrics[url]['end_time'] - url_metrics[url]['start_time']
                     
-                    # Update city totals
+        # Update city totals
                     city = url_metrics[url]['city']
                     city_event_counts[city] = city_event_counts.get(city, 0) + len(events)
+                    
+                    # Track regex events separately (for display)
+                    city_event_counts[f"{city}_regex"] = city_event_counts.get(f"{city}_regex", 0) + (len(events) if extraction_method == 'regex' else 0)
+                    
+                    # Calculate grand total
                     grand_total += len(events)
                     
                     # Print events found to console

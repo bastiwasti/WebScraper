@@ -32,6 +32,7 @@ class Event:
     date: str
     time: str
     source: str
+    end_time: str = ""
     category: str = "other"
     city: str = ""
 
@@ -278,3 +279,23 @@ class BaseRule(ABC):
             events = self.parse_with_llm_fallback(raw_content)
 
         return events
+
+    def extract_events_with_method(self, raw_content: str, use_llm_fallback: bool = True) -> tuple[List[Event], str]:
+        """Main extraction method that returns events and extraction method.
+
+        Args:
+            raw_content: Raw text content to parse.
+            use_llm_fallback: Whether to use LLM if regex fails (default: True).
+
+        Returns:
+            Tuple of (List[Event], extraction_method) where extraction_method is "regex" or "llm".
+        """
+        events = self.parse_with_regex(raw_content)
+
+        if events:
+            return events, "regex"
+        elif use_llm_fallback:
+            events = self.parse_with_llm_fallback(raw_content)
+            return events, "llm"
+        else:
+            return events, "none"

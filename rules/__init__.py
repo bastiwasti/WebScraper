@@ -38,7 +38,7 @@ from .urls import (
 from .base import Event, BaseRule, BaseScraper
 
 
-def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> list[Event]:
+def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> tuple[list[Event], str]:
     """Fetch and extract events from a single URL.
 
     This is the main entry point for the rules system.
@@ -48,7 +48,7 @@ def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> list[Event
         use_llm_fallback: Whether to use LLM if regex fails (default: True).
 
     Returns:
-        List of Event objects extracted from the URL.
+        Tuple of (List of Event objects, extraction_method) where extraction_method is "regex", "llm", or "none".
 
     Raises:
         ValueError: If no rule found for the URL.
@@ -57,11 +57,11 @@ def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> list[Event
         scraper = create_scraper(url)
         content = scraper.fetch()
         regex_parser = create_regex(url)
-        events = regex_parser.extract_events(content, use_llm_fallback)
-        return events
+        events, extraction_method = regex_parser.extract_events_with_method(content, use_llm_fallback)
+        return events, extraction_method
     except Exception as e:
         print(f"Error fetching events from {url}: {e}")
-        return []
+        return [], "error"
 
 
 def fetch_events_from_urls(urls: list[str], use_llm_fallback: bool = True) -> list[Event]:
@@ -76,7 +76,7 @@ def fetch_events_from_urls(urls: list[str], use_llm_fallback: bool = True) -> li
     """
     all_events = []
     for url in urls:
-        events = fetch_events_from_url(url, use_llm_fallback)
+        events, _ = fetch_events_from_url(url, use_llm_fallback)
         all_events.extend(events)
 
     return all_events

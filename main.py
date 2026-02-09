@@ -79,6 +79,11 @@ def main() -> None:
         help="Run as full pipeline (analyzer updates same run_id as scraper).",
     )
     parser.add_argument(
+        "--reset-db",
+        action="store_true",
+        help="Reset database (drop and recreate all tables).",
+    )
+    parser.add_argument(
         "--load-summary",
         type=int,
         help="Load raw summary by ID and print it (for debugging).",
@@ -101,6 +106,13 @@ def main() -> None:
         help="Maximum characters per chunk (default: 5000).",
     )
     args = parser.parse_args()
+
+    if args.reset_db:
+        from storage import reset_database
+        print("Resetting database...")
+        reset_database()
+        print("✓ Database reset complete")
+        sys.exit(0)
 
     if args.list_runs:
         runs = get_runs()
@@ -228,7 +240,14 @@ def main() -> None:
 
         if args.agent == "scraper":
             scraper = ScraperAgent(model=args.model)
+            
+            if not args.no_db:
+                run_id = create_run("scraper", args.location)
+            else:
+                run_id = 0
+            
             raw_summary, url_metrics, city_event_counts = scraper.run(
+                run_id=run_id,
                 location=args.location,
                 max_search=args.max_search,
                 cities=args.cities,
@@ -238,7 +257,6 @@ def main() -> None:
             print(raw_summary)
 
             if not args.no_db:
-                run_id = create_run("scraper", args.location)
                 summary_id = insert_raw_summary(
                     location=args.location,
                     max_search=args.max_search,
