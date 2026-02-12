@@ -176,23 +176,39 @@ class SchauplatzRegex(BaseRule):
         # Extract main event description using improved filtering
         col_md_8 = soup.select_one('#ztix_single .col-md-8')
         if col_md_8:
-            # Find the first h2 element
-            first_h2 = col_md_8.find('h2')
+            # Generic keywords that indicate non-description content
+            GENERIC_KEYWORDS = [
+                'karten für veranstaltungen',
+                'karten-information',
+                'kartenverkauf',
+                'im kartenvorverkauf',
+                'vkk 15,-',
+                'ak 20,-',
+                'karten kaufen',
+                'öffnungszeiten',
+            ]
             
-            # Collect all elements before the first h2
-            event_lines = []
-            if first_h2 and hasattr(first_h2, 'previous_siblings'):
-                # Get all siblings before the h2
-                for sibling in first_h2.previous_siblings:
-                    # Get text from paragraphs (skip text nodes)
-                    if hasattr(sibling, 'name') and sibling.name == 'p':
-                        text = sibling.get_text(strip=True)
-                        if text and len(text) > 25:
-                            event_lines.append(text)
+            # Collect all substantial paragraphs, then filter
+            all_paragraphs = []
+            for p in col_md_8.select('p'):
+                text = p.get_text(strip=True)
+                if not text or len(text) < 30:
+                    continue
+                
+                text_lower = text.lower()
+                
+                # Skip if contains generic keywords
+                if any(kw in text_lower for kw in GENERIC_KEYWORDS):
+                    continue
+                
+                all_paragraphs.append(text)
             
-            # If we collected lines before h2, use them
-            if event_lines:
-                detail_data['detail_description'] = '\n\n'.join(event_lines[:2])
+            # Take first 1 paragraph that's substantial (at least 200 chars)
+            # This filters out ticket info (usually ~128 chars) but keeps event descriptions
+            for p in all_paragraphs:
+                if len(p) >= 200:
+                    detail_data['detail_description'] = p
+                    break
             
             # Fallback to h2 subtitle if no good description found
             if 'detail_description' not in detail_data:
