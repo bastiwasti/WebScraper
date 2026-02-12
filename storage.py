@@ -855,35 +855,82 @@ def insert_events(
             if not name:
                 continue
             
+            # Level 1 date is always available from calendar listing
+            # Level 2 detail_date is only used for validation, not as primary date source
+            date_to_parse = e.get("date") or ""
+            
+            # Parse date (Level 1 date as primary)
             start_datetime, end_datetime = _parse_datetime(
-                e.get("date") or "",
+                date_to_parse,
                 e.get("time") or "",
                 e.get("end_time"),
                 e.get("city", ""),
-                e.get("source", "")
+                e.get("source", ""),
             )
-            
+
             if not start_datetime:
-                print(f"Warning: Skipping event with invalid datetime: {name}")
-                continue
+                # Event has no parseable date from either Level 1 or Level 2
+                # Don't skip - use empty date as indicator of missing info
+                print(f"Warning: Event has no parseable date: {name[:50]}")
+                start_datetime = None
+                end_datetime = None
+
+            # Extract Level 2 data for database columns
+            raw_data_dict = e.get("raw_data")
+            detail_description = ""
+            detail_location = ""
+            detail_page_html = ""
+            detail_end_time = ""
             
+            if raw_data_dict and isinstance(raw_data_dict, dict):
+                detail_description = raw_data_dict.get("detail_description", "")
+                detail_location = raw_data_dict.get("detail_location", "")
+                detail_page_html = raw_data_dict.get("html", "")
+                detail_end_time = raw_data_dict.get("detail_end_time", "")
+            
+            # Set detail_scraped flag
+            detail_scraped = 1 if detail_page_html else 0
+            
+            # Get event URL if available
+            event_url = e.get("event_url", "")
+            
+            # Use Level 2 data when available, otherwise fall back to Level 1
+            # Priority: Level 2 > Level 1
+            desc_to_use = detail_description if detail_description else (e.get("description") or "").strip()
+            loc_to_use = detail_location if detail_location else (e.get("location") or "").strip()
+            time_to_use = detail_end_time if detail_end_time else (e.get("end_time") or "")
+            level1_time = e.get("time") or ""
+            
+            # Combine Level 1 time with Level 2 end_time if available
+            if detail_end_time and level1_time:
+                # Level 2 has end_time, Level 1 has start time - use both
+                pass  # Already handled in end_datetime parsing
+            elif level1_time:
+                time_to_use = level1_time
+
+
             conn.execute(
                 """
-                INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    run_id,
-                    name,
-                    (e.get("description") or "").strip(),
-                    (e.get("location") or "").strip(),
-                    start_datetime.isoformat(),
-                    end_datetime.isoformat() if end_datetime else None,
-                    (e.get("category") or "other").strip(),
-                    (e.get("source") or "").strip(),
-                    (e.get("city") or "").strip(),
-                    now,
-                ),
+                    INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, event_url, detail_scraped, detail_page_html, detail_description, detail_location)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        name,
+                        desc_to_use,
+                        loc_to_use,
+                        start_datetime.isoformat() if start_datetime else None,
+                        end_datetime.isoformat() if end_datetime else None,
+                        (e.get("category") or "other").strip(),
+                        (e.get("source") or "").strip(),
+                        (e.get("city") or "").strip(),
+                        now,
+                        event_url,
+                        1 if detail_page_html else 0,
+                        detail_page_html,
+                        detail_description[:2000],
+                        detail_location[:500],
+                    ),
             )
             count += 1
         conn.commit()

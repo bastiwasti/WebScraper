@@ -436,6 +436,209 @@ class YourRegexClassName(BaseRule):
 
 ---
 
+## 2-Level Scraping Implementation
+
+### Overview
+
+Some event sources provide richer data on individual event detail pages. The 2-level scraping pattern enhances event data by:
+1. **Level 1**: Main calendar page → Basic event info (name, date, time, location, description)
+2. **Level 2**: Event detail pages → Enhanced data (detail_location, detail_description, detail_end_time)
+3. **Data Priority**: Level 2 data used when available, Level 1 as fallback
+
+### When to Use 2-Level Scraping
+
+Use 2-level scraping when:
+- Calendar page links to individual event detail pages
+- Detail pages contain richer data than calendar listings
+- Events need accurate venue information, full descriptions, or end times
+
+**Examples**:
+- ✅ Monheim terminkalender: Links to `/termin/event-id` pages
+- ✅ Potential: Calendar sites with "Read More" → event detail pages
+- ❌ Monheim kulturwerke: No individual detail pages (LLM extraction only)
+
+### Implementation
+
+#### 1. Update Base Classes
+
+`rules/base.py` provides optional Level 2 support:
+
+```python
+@dataclass
+class Event:
+    # ... existing fields ...
+    event_url: str = ""     # URL to event detail page (Level 2)
+    raw_data: dict | None = None  # Level 2 extracted data
+
+
+class BaseRule:
+    # ... existing methods ...
+    
+    def fetch_level2_data(self, events: list[Event], raw_html: str | None = None) -> list[Event]:
+        """Optional: Fetch detail pages and extract Level 2 data.
+        
+        Default: Returns events unchanged.
+        Subclasses can override to implement Level 2 scraping.
+        """
+        return events
+```
+
+#### 2. Implement `fetch_level2_data()` in Regex Class
+
+Override in your `regex.py` file:
+
+```python
+def fetch_level2_data(self, events: list[Event], raw_html: str | None = None) -> list[Event]:
+    """Fetch Level 2 detail data for events.
+    
+    Args:
+        events: List of Event objects from Level 1 parsing
+        raw_html: Raw HTML from main page (for URL extraction)
+    
+    Returns:
+        List of Event objects with raw_data populated.
+    """
+    from bs4 import BeautifulSoup
+    import requests
+    
+    # Extract event detail URLs from main page HTML
+    soup = BeautifulSoup(raw_html, 'html.parser')
+    event_url_map = {}
+    
+    # Parse detail URLs (depends on page structure)
+    # Example for Monheim terminkalender:
+    for link in soup.find_all('a', class_='url date'):
+        href = link.get('href')
+        title = link.get('title')
+        if href and title:
+            event_url_map[title] = href
+    
+    # Fetch detail pages
+    for event in events:
+        detail_url = event_url_map.get(event.name, "")
+        if not detail_url:
+            continue  # No detail URL, skip Level 2
+        
+        try:
+            resp = requests.get(detail_url, timeout=15, headers={"User-Agent": "WeeklyMail/1.0"})
+            resp.raise_for_status()
+            detail_html = resp.text
+            
+            # Parse detail page
+            detail_data = self._parse_detail_page(detail_html)
+            
+            if detail_data:
+                event.raw_data = detail_data
+                event.event_url = detail_url
+                # Use detail URL as source when Level 2 succeeds
+                event.source = detail_url
+        except Exception as e:
+            print(f"Failed to fetch detail page: {e}")
+    
+    return events
+```
+
+#### 3. Parse Detail Page
+
+```python
+def _parse_detail_page(self, detail_html: str) -> dict:
+    """Parse event detail page HTML.
+    
+    Returns:
+        Dict with keys: detail_date, detail_time, detail_end_time, 
+              detail_location, detail_description
+    """
+    from bs4 import BeautifulSoup
+    import re
+    
+    soup = BeautifulSoup(detail_html, 'html.parser')
+    
+    # Extract data based on page structure
+    detail_data = {
+        'detail_date': self._extract_date(soup),
+        'detail_time': self._extract_time(soup),
+        'detail_end_time': self._extract_end_time(soup),
+        'detail_location': self._extract_location(soup),
+        'detail_description': self._extract_description(soup),
+    }
+    
+    return detail_data
+
+
+# Helper methods for detail page parsing
+def _extract_date(self, soup) -> str:
+    """Extract event date from detail page."""
+    # Implementation depends on page structure
+    return ""
+
+def _extract_time(self, soup) -> str:
+    """Extract event time from detail page."""
+    return ""
+
+def _extract_end_time(self, soup) -> str:
+    """Extract event end time from detail page."""
+    return ""
+
+def _extract_location(self, soup) -> str:
+    """Extract event location from detail page."""
+    return ""
+
+def _extract_description(self, soup) -> str:
+    """Extract event description from detail page."""
+    # Get text from relevant element
+    return ""
+```
+
+#### 4. Automatic Level 2 Scraping
+
+`rules/__init__.py` automatically calls Level 2 scraping:
+
+```python
+def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> tuple[list[Event], str]:
+    # ... existing code ...
+    events, extraction_method = regex_parser.extract_events_with_method(content, use_llm_fallback)
+    
+    # NEW: Attempt Level 2 scraping if scraper supports it
+    try:
+        if hasattr(scraper, 'fetch_raw_html'):
+            raw_html = scraper.fetch_raw_html()
+            events = regex_parser.fetch_level2_data(events, raw_html)
+    except Exception as e:
+        print(f"Warning: Level 2 scraping failed for {url}: {e}")
+    
+    return events, extraction_method
+```
+
+### Data Flow
+
+```
+Calendar Page → Level 1 Parser → Events + URLs → Level 2 Fetcher → Enhanced Events
+                              ↓
+                         Level 2 Parser → raw_data dict populated
+                              ↓
+                         Storage → Uses Level 2 when available
+```
+
+### Performance Considerations
+
+- **Time**: Each detail page fetch adds ~1-3 seconds
+- **Impact**: For 77 events = ~2 minutes additional time
+- **Acceptable**: Daily run (once/day) makes this acceptable
+- **Failures**: Some detail pages may fail (404, 503) - handle gracefully
+
+### Storage Integration
+
+Level 2 data is saved to database:
+
+```python
+# storage.py automatically prioritizes Level 2 data
+desc_to_use = detail_description if detail_description else (e.get("description") or "").strip()
+loc_to_use = detail_location if detail_location else (e.get("location") or "").strip()
+source_to_use = event_url if event_url else (e.get("source") or "").strip()
+```
+
+---
+
 ## Date Filtering (14 Days) - CRITICAL REQUIREMENT
 
 **Date filtering MUST be implemented in the scraper at the webpage level.**

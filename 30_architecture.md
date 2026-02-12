@@ -132,25 +132,29 @@ python main.py --agent analyzer
 │  - Extract events via regex or LLM                 │
 │  - Generate raw summary with LLM                   │
 │  - Track metrics (time, events per URL)            │
+│  - **Level 2 Scraping** (optional)              │
+│    - Fetch event detail pages if supported           │
+│    - Extract enhanced data from detail pages         │
+│    - Merge Level 2 data with Level 1 events          │
 └─────────────────────────────────────────────────────┘
-            │
-            ├──▶ URL Rules System (rules/registry.py)
-            │    - URL → RuleEntry mapping
-            │    - Auto-discovery of scrapers/parsers
-            │
-            ├──▶ Scrapers (rules/aggregators/*/scraper.py)
-            │    - BaseScraper subclasses
-            │    - Content fetching (requests/Playwright)
-            │
-            ├──▶ Regex Parsers (rules/aggregators/*/regex.py)
-            │    - BaseRule subclasses
-            │    - Event extraction patterns
-            │
-            ├──▶ LLM (DeepSeek)
-            │    - Raw summary generation
-            │    - LLM fallback for extraction
-            │
-            └──▶ Rich UI (progress bars, tables)
+             │
+             ├──▶ URL Rules System (rules/registry.py)
+             │    - URL → RuleEntry mapping
+             │    - Auto-discovery of scrapers/parsers
+             │
+             ├──▶ Scrapers (rules/aggregators/*/scraper.py)
+             │    - BaseScraper subclasses
+             │    - Content fetching (requests/Playwright)
+             │
+             ├──▶ Regex Parsers (rules/aggregators/*/regex.py)
+             │    - BaseRule subclasses
+             │    - Event extraction patterns
+             │
+             ├──▶ LLM (DeepSeek)
+             │    - Raw summary generation
+             │    - LLM fallback for extraction
+             │
+             └──▶ Rich UI (progress bars, tables)
 ```
 
 ### Analyzer Agent

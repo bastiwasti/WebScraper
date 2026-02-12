@@ -35,6 +35,8 @@ class Event:
     end_time: str = ""
     category: str = "other"
     city: str = ""
+    event_url: str = ""
+    raw_data: dict | None = None
 
 
 class BaseScraper(ABC):
@@ -265,19 +267,35 @@ class BaseRule(ABC):
 
     def extract_events(self, raw_content: str, use_llm_fallback: bool = True) -> List[Event]:
         """Main extraction method: Try regex, fallback to LLM.
-
+        
         Args:
             raw_content: Raw text content to parse.
             use_llm_fallback: Whether to use LLM if regex fails (default: True).
-
+        
         Returns:
             List of Event objects extracted from content.
         """
         events = self.parse_with_regex(raw_content)
-
+        
         if not events and use_llm_fallback:
             events = self.parse_with_llm_fallback(raw_content)
-
+        
+        return events
+    
+    def fetch_level2_data(self, events: List[Event], raw_html: str | None = None) -> List[Event]:
+        """Optional method to fetch Level 2 detail data for events.
+        
+        This method can be overridden by subclasses (e.g., TerminkalenderRegex)
+        to fetch event detail pages and enrich events with additional information.
+        
+        Args:
+            events: List of Event objects from Level 1 parsing.
+            raw_html: Optional raw HTML content from main page (for URL extraction).
+        
+        Returns:
+            List of Event objects with Level 2 data merged in (raw_data field).
+            By default, returns events unchanged.
+        """
         return events
 
     def extract_events_with_method(self, raw_content: str, use_llm_fallback: bool = True) -> tuple[List[Event], str]:

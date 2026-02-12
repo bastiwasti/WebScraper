@@ -79,3 +79,23 @@ class TerminkalenderScraper(BaseScraper):
     def fetch(self) -> str:
         """Fetch content from terminkalender URL."""
         return self._fetch_with_params()
+    
+    def fetch_raw_html(self) -> str:
+        """Fetch raw HTML content from terminkalender URL.
+        
+        This is used by the rules system for Level 2 scraping.
+        """
+        """Fetch raw HTML content from terminkalender URL.
+        
+        This is used by the regex parser when it needs to parse HTML directly.
+        """
+        import requests
+        from bs4 import BeautifulSoup
+        
+        resp = requests.get(
+            self.url,
+            timeout=15,
+            headers={"User-Agent": "WeeklyMail/1.0"},
+        )
+        resp.raise_for_status()
+        return resp.text

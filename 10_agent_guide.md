@@ -90,6 +90,27 @@ The rules system provides a registry of URL-specific handlers. Each URL has:
 1. **Scraper class**: Fetches content from a URL
 2. **Regex class**: Parses content to extract events
 
+### 2-Level Scraping
+
+Some scrapers support an additional "Level 2" scraping step that fetches event detail pages for enhanced data:
+
+**When to Use 2-Level Scraping**:
+- Calendar pages that link to individual event detail pages
+- Detail pages contain richer data (location, description, end_time)
+- Example: Monheim terminkalender links to individual event detail pages
+
+**How It Works**:
+1. **Level 1**: Main calendar page is scraped → Extracts events with: name, date, time, location, description
+2. **Level 2**: For each event, detail page is fetched → Extracts: detail_location, detail_description, detail_end_time
+3. **Data Priority**: Level 2 data is used when available, Level 1 data as fallback
+
+**Implementation Details**:
+- `rules/base.py` provides `fetch_level2_data()` method for subclasses to override
+- `Event` dataclass includes `event_url` and `raw_data` fields
+- `rules/__init__.py` automatically calls Level 2 scraping after regex extraction
+
+**See Also**: [90_ToDo_Scraper.md](90_ToDo_Scraper.md) - List of scrapers that need 2-level integration
+
 ### Registry Structure
 
 ```

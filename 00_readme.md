@@ -135,9 +135,12 @@ DB_PATH=data/events.db
 
 ### Supported Cities
 
-See [SETUP_GUIDE.md](SETUP_GUIDE.md) for the complete list of supported cities and how to add new ones.
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete list of supported cities and how to add new ones.
 
 **Currently Supported**: monheim, langenfeld, solingen, haan, leverkusen, hilden, dormagen, ratingen
+
+**Advanced Features**:
+- **2-Level Scraping**: Monheim terminkalender fetches event detail pages for enhanced data (see [90_ToDo_Scraper.md](90_ToDo_Scraper.md))
 ---
 
 ## Project Structure

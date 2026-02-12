@@ -265,10 +265,15 @@ class ScraperAgent:
                         events_text = f"Page: {url}\nEvents: {len(events)} found\n"
                         for event in events:
                             events_text += f"- Event: {event.name}\n"
-                            events_text += f"  Date/Time: {event.date} {event.time}\n"
+                            events_text += f"  Date: {event.date}\n"
+                            events_text += f"  Time: {event.time}\n"
                             events_text += f"  Location/Venue: {event.location or 'Not specified'}\n"
                             events_text += f"  Description/Category: {event.description}\n"
                             events_text += f"  Source: {event.source}\n"
+                            # Include Level 2 data if available
+                            if event.raw_data:
+                                import json
+                                events_text += f"  Level2_Data: {json.dumps(event.raw_data, ensure_ascii=False)}\n"
                         all_parts.append(events_text)
                     
                     if logger:

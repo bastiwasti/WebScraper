@@ -22,7 +22,7 @@ All documentation files follow the format: `{number}_{name}.md`
 
 ### 00_readme.md
 **Purpose**: Main entry point and quick start guide
-**For**: New users getting started with the project
+**For**: New users getting started with project
 
 **Contents**:
 - Quick start (installation, configuration, running)
@@ -31,6 +31,7 @@ All documentation files follow the format: `{number}_{name}.md`
 - Project structure overview
 - Database schema
 - Tech stack
+- **2-Level Scraping** (see 90_ToDo_Scraper.md)
 
 ### 10_agent_guide.md
 **Purpose**: Comprehensive guide for both scraper and analyzer agents

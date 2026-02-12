@@ -73,39 +73,81 @@ class AnalyzerAgent:
         """Extract JSON events from pre-structured text (from scraper LLM fallback)."""
         events = []
         
-        # Pattern to find JSON content between "- Event:" and "  Date/Time:" or next event
-        # This captures all text including markdown code fences
-        event_blocks = re.findall(r'- Event:\s*([\s\S]*?)\n\s*(?:- Event:|Date/Time:)', text)
+        # Pattern to find event blocks
+        # Matches: "- Event:" followed by event name (first line)
+        # Then captures all indented lines until next event or end
+        event_blocks = re.findall(r'- Event:\s*([^\n]+(?:\n\s{2}[^\n]+)*)(?=\n\s*- Event:|\Z)', text)
         
         for event_block in event_blocks:
-            # Remove markdown code fences if present
-            event_block = re.sub(r'```json\s*', '', event_block)
-            event_block = re.sub(r'```\s*$', '', event_block)
             event_block = event_block.strip()
             
             if not event_block:
                 continue
             
-            try:
-                data = json.loads(event_block)
-                
-                # Handle both formats:
-                # 1. [{"name": "...", ...}, ...] (array of events)
-                # 2. {"events": [...]} (wrapper with events key)
-                # 3. {"name": "...", ...} (single event object)
-                
-                if isinstance(data, list):
-                    events.extend(data)
-                elif isinstance(data, dict):
-                    if "events" in data:
-                        events_data = data["events"]
-                        if isinstance(events_data, list):
-                            events.extend(events_data)
-                    else:
-                        # Single event object
-                        events.append(data)
-            except json.JSONDecodeError:
+            # Extract event name from first line
+            lines = event_block.split('\n')
+            if not lines:
                 continue
+            
+            event_name = lines[0].strip()
+            
+            # Extract other fields from remaining lines
+            event_data = {
+                "name": event_name,
+                "date": "",
+                "time": "",
+                "location": "",
+                "description": "",
+                "source": "",
+                "raw_data": None,
+            }
+            
+            for line in lines[1:]:  # Skip first line (name)
+                line = line.strip()
+                
+                # Date (separate line)
+                date_match = re.match(r'^Date:\s*(.+)', line)
+                if date_match:
+                    event_data["date"] = date_match.group(1).strip()
+                    continue
+                
+                # Time (separate line)
+                time_match = re.match(r'^Time:\s*(.+)', line)
+                if time_match:
+                    event_data["time"] = time_match.group(1).strip()
+                    continue
+                
+                # Location/Venue
+                loc_match = re.match(r'^Location/Venue:\s*(.+)', line)
+                if loc_match:
+                    event_data["location"] = loc_match.group(1).strip()
+                    continue
+                
+                # Description/Category
+                desc_match = re.match(r'^Description/Category:\s*(.+)', line)
+                if desc_match:
+                    event_data["description"] = desc_match.group(1).strip()
+                    continue
+                
+                # Source
+                source_match = re.match(r'^Source:\s*(.+)', line)
+                if source_match:
+                    event_data["source"] = source_match.group(1).strip()
+                    continue
+                
+                # Level2_Data
+                level2_match = re.match(r'^Level2_Data:\s*(.+)', line)
+                if level2_match:
+                    try:
+                        level2_json = level2_match.group(1).strip()
+                        event_data["raw_data"] = json.loads(level2_json)
+                    except json.JSONDecodeError:
+                        pass
+                    continue
+            
+            # Build event object from parsed data
+            if event_data["date"] or event_data["location"]:
+                events.append(event_data)
         
         return events
 
@@ -227,7 +269,7 @@ class AnalyzerAgent:
         return ''
 
     def _deduplicate_events(self, events: list[dict]) -> list[dict]:
-        """Remove duplicate events based on event ID if available, otherwise name, location, and source."""
+        """Remove duplicate events based on event ID if available, otherwise name, location, date, and source."""
         seen = set()
         unique_events = []
         
@@ -239,15 +281,16 @@ class AnalyzerAgent:
             event_id = event.get('id', '')
             name = str(event.get('name', '')).lower().strip()
             location = str(event.get('location', '')).lower().strip()
+            date = str(event.get('date', '')).lower().strip()
             source = str(event.get('source', '')).lower().strip()
             
             # Create unique key:
             # - If event has ID: use source + ID
-            # - Otherwise: use (name, location, source) tuple
+            # - Otherwise: use (name, location, date, source) tuple to distinguish same event on different dates
             if event_id:
                 key = f"{source}::{event_id}"
             else:
-                key = (name, location, source)
+                key = (name, location, date, source)
             
             if key not in seen:
                 seen.add(key)
