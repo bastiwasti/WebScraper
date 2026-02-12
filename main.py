@@ -36,6 +36,11 @@ def main() -> None:
         help="Cities to scrape (default: all). Available: monheim, langenfeld, leverkusen, hilden, dormagen, ratingen, solingen, haan.",
     )
     parser.add_argument(
+        "--url",
+        "-u",
+        help="Specific URL or folder to scrape (e.g., --url lust_auf or --url https://lust-auf-leverkusen.de/). Overrides --cities.",
+    )
+    parser.add_argument(
         "--search-queries",
         nargs="+",
         help="Custom search queries for finding events (optional).",
@@ -106,6 +111,46 @@ def main() -> None:
         help="Maximum characters per chunk (default: 5000).",
     )
     args = parser.parse_args()
+    
+    def resolve_url(url_or_folder: str) -> str:
+        """Resolve --url argument to actual URL.
+        
+        Args:
+            url_or_folder: Either a full URL or a folder name (e.g., 'lust_auf').
+        
+        Returns:
+            Actual URL string to scrape.
+        """
+        # If it's already a full URL, return as-is
+        if url_or_folder.startswith(('http://', 'https://')):
+            return url_or_folder
+        
+        # Otherwise, treat it as a folder name
+        from rules.urls import CITY_URLS
+        
+        folder_lower = url_or_folder.lower().strip()
+        
+        # Search for folder in all cities
+        for city, url_dict in CITY_URLS.items():
+            for subfolder, url in url_dict.items():
+                if subfolder.lower() == folder_lower:
+                    return url
+        
+        print(f"Error: Folder '{url_or_folder}' not found in any city", file=sys.stderr)
+        sys.exit(1)
+    
+    # Resolve URL if --url is provided (overrides --cities)
+    urls_to_use: list[str] = []
+    if args.url:
+        resolved_url = resolve_url(args.url)
+        urls_to_use.append(resolved_url)
+        args.cities = []  # Clear cities to prevent auto-detection
+        print(f"Running single URL mode: {resolved_url}")
+    elif not args.cities:
+        # Default: scrape all cities
+        from rules.urls import get_all_urls
+        urls_to_use = get_all_urls()
+        print(f"Running all cities mode: {len(urls_to_use)} URLs")
 
     if args.reset_db:
         from storage import reset_database
@@ -250,8 +295,9 @@ def main() -> None:
                 run_id=run_id,
                 location=args.location,
                 max_search=args.max_search,
-                cities=args.cities,
+                cities=args.cities if not urls_to_use else None,  # Use cities only if --url not provided
                 search_queries=args.search_queries,
+                urls=urls_to_use if urls_to_use else None,  # Use explicit URLs if --url provided
             )
             print("--- Raw summary (Agent 1) ---")
             print(raw_summary)
