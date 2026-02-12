@@ -849,12 +849,20 @@ def insert_events(
     try:
         init_db(conn)
         now = datetime.utcnow().isoformat() + "Z"
+        
+        # Check if any event is from kulturwerke (for Level 2 filtering)
+        has_kulturwerke_events = any("monheimer-kulturwerke" in e.get("source", "") for e in events)
+        
         count = 0
         for e in events:
             name = (e.get("name") or "").strip()
             if not name:
                 continue
             
+            # Skip only specific events (kulturwerke without Level 2 data)
+            # Other cities save all events normally
+            if "monheimer-kulturwerke" in e.get("source", "") and not e.get("raw_data"):
+                continue  # Skip Level 1-only events for kulturwerke
             # Level 1 date is always available from calendar listing
             # Level 2 detail_date is only used for validation, not as primary date source
             date_to_parse = e.get("date") or ""
