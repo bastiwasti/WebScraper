@@ -36,6 +36,24 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 
 **Result**: Events with Level 2 data have rich descriptions, accurate locations, end times.
 
+### Example: Monheim Kulturwerke
+
+| Stage | URL | Action | Data Extracted |
+|--------|-----|---------|----------------|
+| Level 1 | https://www.monheimer-kulturwerke.de/de/kalender/ | Parse HTML cards | Events: 120, basic info |
+| Level 2 | https://www.monheimer-kulturwerke.de/de/kalender/{event-slug} | Fetch details | Enhanced: 120 events |
+
+**Key Learnings**:
+- Used HTML parsing (BeautifulSoup) instead of regex for better extraction
+- Playwright returns raw HTML for dynamic SPA content (no cleaning)
+- Event name matching handles variations in naming conventions
+- 1-month date filtering applied BEFORE Level 2 fetching
+- All events successfully fetched detail data (120/120 = 100%)
+
+**Files Modified**:
+- `rules/cities/monheim/kulturwerke/scraper.py`: Modified `_fetch_with_playwright()` to return raw HTML
+- `rules/cities/monheim/kulturwerke/regex.py`: Complete rewrite with HTML parsing + Level 2 methods
+
 ---
 
 ## Scrapers Requiring 2-Level Integration
@@ -56,8 +74,8 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 
 | City | Subfolder | Status |
 |-------|-----------|--------|
-| Monheim | terminkalender | ✅ Complete |
-| Monheim | kulturwerke | ❌ No detail pages |
+| Monheim | terminkalender | ✅ Complete - 55/78 events with Level 2 data |
+| Monheim | kulturwerke | ✅ Complete - 120/120 events with Level 2 data |
 
 ## Implementation Briefing
 
@@ -97,9 +115,31 @@ Update `rules/base.py` if not already done:
 
 In your regex.py file:
 
+**Choose your Level 1 extraction approach:**
+
+*Option A: HTML-based (Recommended for structured sites)*
+```python
+def parse_with_regex(self, raw_content: str) -> List[Event]:
+    """Parse content using HTML parsing (primary method)."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(raw_content, 'html.parser')
+    # Parse structured event cards: <li data-tags>, <div class="card">, etc.
+    # Extract: name, date, time, location from child elements
+```
+
+*Option B: Regex-based (For simple text patterns)*
+```python
+def get_regex_patterns(self) -> List[re.Pattern]:
+    """Return regex patterns for text-based extraction."""
+    patterns = [re.compile(r'pattern')]
+    return patterns
+```
+
+Then implement Level 2:
+
 1. **Extract detail URLs**:
-   - Parse Level 1 HTML to find links to detail pages
-   - Create mapping: event_name → detail_url
+    - Parse Level 1 HTML to find links to detail pages
+    - Create mapping: event_name → detail_url (or event_id → detail_url)
 
 2. **Fetch detail pages**:
    ```python
@@ -196,8 +236,9 @@ LIMIT 10
 ### Important Notes
 
 1. **Performance Impact**: Each detail page fetch adds ~1-3 seconds
-   - For 50 events = ~2 minutes additional time
-   - Acceptable for daily run
+    - Monheim terminkalender: 78 events = ~26 seconds total (Level 1 + Level 2)
+    - Monheim kulturwerke: 120 events = ~2.5 minutes total (Level 1 + Level 2)
+    - Acceptable for daily run
 
 2. **Error Handling**: Some detail pages may fail
    - 404: Event removed, page not found
@@ -215,17 +256,47 @@ LIMIT 10
    - Never replace Level 1 date with Level 2 date
 
 5. **Source Priority**: Use detail URL as source when Level 2 succeeds
-   - This provides traceability to the exact event page
-   - For aggregators, this shows the true source of each event
+    - This provides traceability to the exact event page
+    - For aggregators, this shows the true source of each event
+
+### Technical Considerations
+
+6. **HTML Parsing vs Regex Patterns**:
+   - For sites with well-structured HTML cards, use BeautifulSoup
+   - More reliable than regex for nested/complex structures
+   - Example: `<li data-tags>` with child elements for title, date, location
+   - Override `parse_with_regex()` to use HTML parsing directly
+
+7. **Playwright for Dynamic Content**:
+   - When using `_fetch_with_playwright()`, return raw HTML not cleaned text
+   - Override `_fetch_with_playwright()` in scraper to return `page.content()` instead of `soup.get_text()`
+   - HTML-based regex.py then parses raw HTML directly
+   - No need for separate `fetch_raw_html()` method if scraper returns raw HTML by default
+
+8. **URL Extraction Approaches**:
+   - **Event name matching**: Match Level 1 events to detail URLs by name
+   - Works when URL patterns vary (event slugs vs IDs)
+   - More flexible than ID-based mapping
+   - Handle title/subtitle combinations in naming
+   - Alternative: Extract URLs from `<a>` tags directly in event cards
+
+9. **Date Filtering Timing**:
+   - Apply date filters BEFORE Level 2 fetching
+   - Reduces unnecessary page loads (e.g., 120/62 events filtered in Monheim)
+   - Keep date parsing logic in `parse_with_regex()` for early filtering
+   - Only fetch Level 2 for events within configured date window
 
 ## Implementation Checklist
 
 For each scraper:
 
 - [ ] Analyze calendar page structure
+- [ ] Determine if HTML parsing or regex is better for Level 1
+- [ ] If using Playwright, ensure raw HTML is returned (not cleaned text)
 - [ ] Identify detail page links
-- [ ] Extract detail URL mapping
+- [ ] Extract detail URL mapping (name-based or ID-based)
 - [ ] Implement `fetch_level2_data()` in regex.py
+- [ ] Add date filtering BEFORE Level 2 fetching
 - [ ] Parse detail pages (extract location, description, end_time)
 - [ ] Merge Level 2 data with Level 1 events
 - [ ] Test Level 2 scraping
@@ -240,6 +311,19 @@ When all scrapers support 2-level scraping (or are evaluated as not suitable), t
 
 ## See Also
 
-- [refactor_scraping.md](refactor_scraping.md) - Monheim terminkalender 2-level implementation
+- [refactor_scraping.md](refactor_scraping.md) - Monheim terminkalender 2-level implementation (HTML-based reference)
 - [20_setup_guide.md](20_setup_guide.md) - Complete scraper setup instructions
 - [10_agent_guide.md](10_agent_guide.md) - URL rules system documentation
+
+## Implementation Reference Examples
+
+Both Monheim scrapers now support 2-level scraping with HTML-based parsing:
+
+| Scraper | Level 1 Method | Detail Page Pattern | Events with Level 2 |
+|---------|----------------|---------------------|---------------------|
+| terminkalender | HTML cards (`div.info`) | `/freizeit-tourismus/terminkalender/termin/{slug}` | 55/78 (71%) |
+| kulturwerke | HTML cards (`li[data-tags]`) | `/de/kalender/{event-slug}` | 120/120 (100%) |
+
+**Key implementation files:**
+- `rules/cities/monheim/terminkalender/regex.py` - Reference implementation with Level 2
+- `rules/cities/monheim/kulturwerke/regex.py` - Complete HTML parser with Playwright integration
