@@ -266,6 +266,54 @@ LIMIT 10
    - For sites with well-structured HTML cards, use BeautifulSoup
    - More reliable than regex for nested/complex structures
    - Example: `<li data-tags>` with child elements for title, date, location
+   - Recommended for both Level 1 and Level 2 extraction
+
+7. **Content-Aware Paragraph Selection for Level 2**:
+   - Simply taking the first paragraph doesn't work reliably
+   - Collect ALL paragraphs from detail page
+   - Filter out generic/non-description content using keywords
+   - Select best paragraphs based on length and content characteristics
+   
+   **Generic Text Patterns** (site-specific):
+   - Schauplatz: "karten für veranstaltungen", "dienstags und donnerstags"
+   - Langenfeld city_events: "erhältlich bei"
+   - These indicate ticket sales info, not event descriptions
+
+8. **Length-Based Filtering**:
+   - Minimum length thresholds exclude short labels and generic text
+   - Example: `>=200 chars` filters out ticket office hours (~128 chars)
+   - Keep substantial paragraphs (event descriptions are 400+ chars)
+
+9. **Fallback Strategies**:
+   - Always provide fallback when no description passes filters
+   - Use h2 subtitle as fallback for description
+   - Don't return empty/None - maintain data integrity
+
+10. **No LLM Needed for Level 2**:
+   - Improved BeautifulSoup parsing can handle complex HTML structures
+   - Avoids LLM costs ($0.50-$2.00 per run)
+   - Faster than LLM calls (~3 seconds per call)
+   - Use LLM only as last resort for Level 1 fallback
+
+11. **Incremental Testing Approach**:
+   - Test after each significant change to catch issues early
+   - Start: Basic paragraph collection
+   - Add: Keyword filtering for generic text
+   - Add: Minimum length threshold
+   - Verify: Check actual data in database
+   - This prevents cascading bugs and speeds up development
+
+12. **Database Schema Consistency**:
+   - Ensure `storage.py` CREATE TABLE includes all Level 2 columns
+   - Columns needed: `event_url`, `detail_scraped`, `detail_page_html`, `detail_description`, `detail_location`
+   - Update schema when adding new Level 2 fields
+   - Use `detail_scraped` flag to track successful Level 2 extraction
+
+13. **Debugging Workflow**:
+   - Test single detail page: `parser.parse_detail_page(html)` directly
+   - Check DB contents: Query with `detail_scraped=1` to verify
+   - Compare Level 1 vs Level 2 descriptions side-by-side
+   - Use `SELECT substr(detail_description, 1, 100)` to preview data
    - Override `parse_with_regex()` to use HTML parsing directly
 
 7. **Playwright for Dynamic Content**:
@@ -331,4 +379,45 @@ All four scrapers now support 2-level scraping with HTML-based parsing:
 - `rules/cities/monheim/terminkalender/regex.py` - Reference implementation with Level 2
 - `rules/cities/monheim/kulturwerke/regex.py` - Complete HTML parser with Playwright integration
 - `rules/cities/langenfeld/city_events/regex.py` - HTML-based parser with category inference from keywords
-- `rules/cities/langenfeld/schauplatz/regex.py` - HTML-based parser for Ztix system
+- `rules/cities/langenfeld/schauplatz/regex.py` - HTML-based parser for Ztix system (improved description extraction)
+
+### Level 2 Extraction Strategies
+
+**Schauplatz Approach (Content-Aware Filtering):**
+
+```python
+def parse_detail_page(self, detail_html: str) -> dict | None:
+    # Collect all paragraphs from detail page
+    all_paragraphs = []
+    for p in col_md_8.select('p'):
+        text = p.get_text(strip=True)
+        if not text or len(text) < 30:
+            continue
+        all_paragraphs.append(text)
+    
+    # Filter out generic content using keywords
+    GENERIC_KEYWORDS = [
+        'karten für veranstaltungen',
+        'karten-information',
+        'dienstags und donnerstags',
+    ]
+    
+    event_paragraphs = []
+    for p in all_paragraphs:
+        text_lower = p.lower()
+        if any(kw in text_lower for kw in GENERIC_KEYWORDS):
+            continue
+        event_paragraphs.append(p)
+    
+    # Select substantial paragraph (>=200 chars)
+    for p in event_paragraphs:
+        if len(p) >= 200:
+            detail_data['detail_description'] = p
+            break
+```
+
+**Key Insights:**
+- Generic text patterns are site-specific
+- Length-based filtering (>=200 chars) excludes ticket office info (~128 chars)
+- Fallback to h2 subtitle if no substantial paragraph found
+- Result: Actual event descriptions (400-800 chars) instead of generic sales text
