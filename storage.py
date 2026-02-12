@@ -92,6 +92,13 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 source TEXT,
                 city TEXT,
                 created_at TEXT NOT NULL,
+                event_url TEXT,
+                detail_scraped INTEGER DEFAULT 0,
+                detail_page_html TEXT,
+                detail_location TEXT,
+                detail_description TEXT,
+                detail_full_description TEXT,
+                raw_data TEXT,
                 FOREIGN KEY (run_id) REFERENCES runs(id)
             )
         """)

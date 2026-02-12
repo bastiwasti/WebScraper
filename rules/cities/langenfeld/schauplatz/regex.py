@@ -160,42 +160,57 @@ class SchauplatzRegex(BaseRule):
             detail_html: Raw HTML content from event detail page.
         
         Returns:
-            Dictionary with detail information (detail_description, detail_location).
+            Dictionary with detail information (detail_description, detail_location, detail_date, detail_time, detail_price).
         """
         from bs4 import BeautifulSoup
         
         soup = BeautifulSoup(detail_html, 'html.parser')
         detail_data = {}
         
+        # Find event title for reference
         title_elem = soup.select_one('#ztix_single h1')
-        subtitle_elem = soup.select_one('#ztix_single h2')
+        if not title_elem:
+            return None
+        event_title = title_elem.get_text(strip=True)
         
-        if title_elem:
-            title = title_elem.get_text(strip=True)
-            if subtitle_elem:
-                title = f"{title} - {subtitle_elem.get_text(strip=True)}"
+        # Extract main event description using improved filtering
+        col_md_8 = soup.select_one('#ztix_single .col-md-8')
+        if col_md_8:
+            # Find the first h2 element
+            first_h2 = col_md_8.find('h2')
+            
+            # Collect all elements before the first h2
+            event_lines = []
+            if first_h2 and hasattr(first_h2, 'previous_siblings'):
+                # Get all siblings before the h2
+                for sibling in first_h2.previous_siblings:
+                    # Get text from paragraphs (skip text nodes)
+                    if hasattr(sibling, 'name') and sibling.name == 'p':
+                        text = sibling.get_text(strip=True)
+                        if text and len(text) > 25:
+                            event_lines.append(text)
+            
+            # If we collected lines before h2, use them
+            if event_lines:
+                detail_data['detail_description'] = '\n\n'.join(event_lines[:2])
+            
+            # Fallback to h2 subtitle if no good description found
+            if 'detail_description' not in detail_data:
+                subtitle_elem = soup.select_one('#ztix_single h2')
+                if subtitle_elem:
+                    detail_data['detail_description'] = subtitle_elem.get_text(strip=True)
         
-        description = ""
-        for p in soup.select('#ztix_single .col-md-8 .main_info p'):
-            text = p.get_text(strip=True)
-            if text and len(text) > 20:
-                description = text
-                break
-        
-        if description:
-            detail_data['detail_description'] = description
-        
-        date_elem = soup.select_one('.date-time-row .date')
-        time_elem = soup.select_one('.date-time-row .time')
+        # Extract date and time from detail page
+        date_elem = soup.select_one('.ztix_date .date')
+        time_elem = soup.select_one('.ztix_time')
         
         if date_elem and time_elem:
-            date_str = date_elem.get_text(strip=True)
-            time_str = time_elem.get_text(strip=True)
-            detail_data['detail_date'] = date_str
-            detail_data['detail_time'] = time_str
+            detail_data['detail_date'] = date_elem.get_text(strip=True)
+            detail_data['detail_time'] = time_elem.get_text(strip=True)
         
-        venue_elem = soup.select_one('.venue .name')
-        location_elem = soup.select_one('.location .address')
+        # Extract venue and location
+        venue_elem = soup.select_one('.ztix_venue')
+        location_elem = soup.select_one('.ztix_location')
         
         if venue_elem:
             venue = venue_elem.get_text(strip=True)
@@ -205,10 +220,13 @@ class SchauplatzRegex(BaseRule):
             else:
                 detail_data['detail_location'] = venue
         
-        price_elem = soup.select_one('.price-row .price')
+        # Extract pricing info (optional)
+        price_elem = soup.select_one('.ztix_price .price')
         if price_elem:
-            price = price_elem.get_text(strip=True)
-            detail_data['detail_price'] = price
+            detail_data['detail_price'] = price_elem.get_text(strip=True)
+        
+        # Add html field for detail_scraped flag
+        detail_data['html'] = detail_html[:2000]
         
         return detail_data if detail_data else None
 
