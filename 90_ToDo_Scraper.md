@@ -60,7 +60,7 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 
 | City | Subfolder | URL | Why Needs 2-Level? | Implementation Notes |
 |-------|-----------|-----|---------------------|--------------------|
-| **Langenfeld** | schauplatz | https://schauplatz.de/ | Event pages may have more details | Similar to Langenfeld city_events |
+| **Langenfeld** | schauplatz | https://schauplatz.de/ | Links to detail pages | ✅ Complete - HTML-based parser for Ztix system |
 | **Haan** | kultur_freizeit | https://www.haan.de/Kultur-Freizeit/Veranstaltungen | Richer detail data possible | Check for individual event links |
 | **Leverkusen** | lust_auf | https://lust-auf-leverkusen.de/ | Event detail pages | Check if individual event pages exist |
 | **Leverkusen** | stadt_erleben | https://www.leverkusen.de/stadt-erleben/veranstaltungskalender/ | Calendar structure | May need detail page extraction |
@@ -76,6 +76,7 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 | Monheim | terminkalender | ✅ Complete - 55/78 events with Level 2 data |
 | Monheim | kulturwerke | ✅ Complete - 120/120 events with Level 2 data |
 | Langenfeld | city_events | ✅ Complete - 23/23 events with Level 2 data |
+| Langenfeld | schauplatz | ✅ Complete - 39/39 events with Level 2 data |
 
 ## Implementation Briefing
 
@@ -317,15 +318,17 @@ When all scrapers support 2-level scraping (or are evaluated as not suitable), t
 
 ## Implementation Reference Examples
 
-All three scrapers now support 2-level scraping with HTML-based parsing:
+All four scrapers now support 2-level scraping with HTML-based parsing:
 
 | Scraper | Level 1 Method | Detail Page Pattern | Events with Level 2 |
 |---------|----------------|---------------------|---------------------|
 | terminkalender | HTML cards (`div.info`) | `/freizeit-tourismus/terminkalender/termin/{slug}` | 55/78 (71%) |
 | kulturwerke | HTML cards (`li[data-tags]`) | `/de/kalender/{event-slug}` | 120/120 (100%) |
 | city_events | HTML cards (`div.event_wrapper`) | `/Startseite/.../Veranstaltungen/{slug}.html?eps=24` | 23/23 (100%) |
+| schauplatz | HTML cards (`div.ztix_box`) | `/Ztix/{slug}/` | 39/39 (100%) |
 
 **Key implementation files:**
 - `rules/cities/monheim/terminkalender/regex.py` - Reference implementation with Level 2
 - `rules/cities/monheim/kulturwerke/regex.py` - Complete HTML parser with Playwright integration
 - `rules/cities/langenfeld/city_events/regex.py` - HTML-based parser with category inference from keywords
+- `rules/cities/langenfeld/schauplatz/regex.py` - HTML-based parser for Ztix system
