@@ -688,3 +688,40 @@ Event data is loaded via JavaScript/AJAX API calls after page initialization, no
 **Recommendation**: Skip this URL and prioritize simpler sites (priority: LOW)
 
 ---
+
+### Decision: Leverkusen - lust_auf
+
+**Status**: ✅ Complete - REST API with 30-day filtering
+
+**Analysis**:
+- Website uses WordPress with Modern Tribe Events Calendar plugin
+- Event data available via structured JSON REST API
+- Endpoint: `https://lust-auf-leverkusen.de/wp-json/tribe/events/v1/events`
+- Total Events: **588** (12 pages × 50 per page)
+- 30-day date window: Jan 14, 2026 to Feb 13, 2026
+- API Fields: id, title, url, description, excerpt, dates, venue, cost, categories, tags, coordinates, etc.
+- Level 2: Individual detail pages available (event/{slug}/)
+- JavaScript rendering: NOT NEEDED - Events server-side rendered in HTML
+
+**Implementation**:
+- REST API endpoint fetching (12 pages × 50 events)
+- JSON parsing with 30-day date filtering
+- Level 2 detail page fetching for all 588 events
+- Execution time: ~13 seconds for 588 events
+- No Playwright needed
+
+**Files Created**:
+- `rules/cities/leverkusen/lust_auf/scraper.py` - REST API-based scraper
+- `rules/cities/leverkusen/lust_auf/regex.py` - JSON parser with Level 3 detail fetching
+- `rules/cities/leverkusen/lust_auf/__init__.py` - Module initialization
+
+**Expected Results**:
+| Metric | Expected |
+|--------|----------|
+| Total Events | 588 (12 pages × 50 per page) |
+| Date Range | Jan 14, 2026 to Feb 13, 2026 |
+| Event Types | Concerts, theater, festivals, sports, etc. |
+| Execution Time | 13 seconds |
+| Level 2 Events | 588/588 (100%) |
+| Data Quality | Structured JSON with full data available |
+
