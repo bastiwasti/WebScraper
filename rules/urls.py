@@ -37,6 +37,7 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     },
     "ratingen": {
         "veranstaltungskalender": "https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell",
+        "kulturprogramm": "https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell",
     },
 }
 
