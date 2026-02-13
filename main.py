@@ -265,6 +265,7 @@ def main() -> None:
             cities=args.cities,
             search_queries=args.search_queries,
             full_run=args.full_run,
+            urls=urls_to_use if urls_to_use else None,
         )
 
         if args.verbose:

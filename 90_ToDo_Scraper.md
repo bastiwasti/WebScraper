@@ -61,12 +61,11 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 | City | Subfolder | URL | Why Needs 2-Level? | Implementation Notes |
 |-------|-----------|-----|---------------------|--------------------|
 | **Langenfeld** | schauplatz | https://schauplatz.de/ | Links to detail pages | ✅ Complete - HTML-based parser for Ztix system |
-| **Haan** | kultur_freizeit | https://www.haan.de/Kultur-Freizeit/Veranstaltungen | Richer detail data possible | Check for individual event links |
-| **Leverkusen** | lust_auf | https://lust-auf-leverkusen.de/ | Event detail pages | Check if individual event pages exist |
-| **Leverkusen** | stadt_erleben | https://www.leverkusen.de/stadt-erleben/veranstaltungskalender/ | Calendar structure | May need detail page extraction |
-| **Hilden** | veranstaltungen | https://www.hilden.de/de/veranstaltungen/ | Detail pages exist | Check for event detail links |
-| **Ratingen** | veranstaltungskalender | https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell | Rich calendar data | May have individual event pages |
-| **Solingen** | live | https://live.solingen.de/ | Event pages | Check for detail page links |
+| **Leverkusen** | lust_auf | https://lust-auf-leverkusen.de/ | Event detail pages | ⚠️ NEEDS UPDATE - Regex patterns return 0 events, pattern `<div class="sp-event">` not found, requires scraper update with HTML parsing |
+| **Leverkusen** | stadt_erleben | https://www.leverkusen.de/stadt-erleben/veranstaltungskalender/ | Calendar structure | ✅ Complete - HTML-based parser with Level 2, 14-day pagination, 91/88 events with Level 2 data |
+| **Hilden** | veranstaltungen | https://www.hilden.de/de/veranstaltungen/ | Detail pages exist | ⚠️ NO DETAIL PAGES - JSON API provides all data (567 events), no individual detail pages, `website` field empty, current implementation is optimal |
+| **Ratingen** | veranstaltungskalender | https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell | Rich calendar data | ⚠️ SKIPPED - JavaScript-rendered SPA, regex returns 0 events, requires complete scraper rewrite with Playwright |
+| **Solingen** | live | https://live.solingen.de/ | Event pages | ⚠️ COMMENTED OUT - Network block (connection refused), URL commented out in urls.py, cannot access |
 | **Dormagen** | - | - | Needs scraper first | Implement Level 1, then add Level 2 |
 
 ## Scrapers Already Supporting 2-Level
@@ -77,6 +76,11 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 | Monheim | kulturwerke | ✅ Complete - 120/120 events with Level 2 data |
 | Langenfeld | city_events | ✅ Complete - 23/23 events with Level 2 data |
 | Langenfeld | schauplatz | ✅ Complete - 39/39 events with Level 2 data |
+| Leverkusen | stadt_erleben | ✅ Complete - 88/91 events with Level 2 data (14-day pagination) |
+| Hilden | veranstaltungen | ⚠️ No detail pages - JSON API optimal, no Level 2 possible |
+| Ratingen | veranstaltungskalender | ⚠️ Skipped - Requires Level 1 rewrite (JavaScript-rendered) |
+| Solingen | live | ⚠️ Commented out - Network issues, cannot test |
+| Leverkusen | lust_auf | ⚠️ Needs update - Regex patterns broken, requires HTML parsing |
 
 ## Implementation Briefing
 
@@ -374,12 +378,14 @@ All four scrapers now support 2-level scraping with HTML-based parsing:
 | kulturwerke | HTML cards (`li[data-tags]`) | `/de/kalender/{event-slug}` | 120/120 (100%) |
 | city_events | HTML cards (`div.event_wrapper`) | `/Startseite/.../Veranstaltungen/{slug}.html?eps=24` | 23/23 (100%) |
 | schauplatz | HTML cards (`div.ztix_box`) | `/Ztix/{slug}/` | 39/39 (100%) |
+| stadt_erleben | HTML cards (`li.SP-TeaserList__item div.SP-Teaser`) | `/veranstaltungskalender/veranstaltungen/hauptkalender/{event-slug}` | 88/91 (96.7%) - 14-day pagination |
 
 **Key implementation files:**
 - `rules/cities/monheim/terminkalender/regex.py` - Reference implementation with Level 2
 - `rules/cities/monheim/kulturwerke/regex.py` - Complete HTML parser with Playwright integration
 - `rules/cities/langenfeld/city_events/regex.py` - HTML-based parser with category inference from keywords
 - `rules/cities/langenfeld/schauplatz/regex.py` - HTML-based parser for Ztix system (improved description extraction)
+- `rules/cities/leverkusen/stadt_erleben/regex.py` - HTML-based parser with Level 2, advertising detection, pagination support
 
 ### Level 2 Extraction Strategies
 
@@ -421,3 +427,173 @@ def parse_detail_page(self, detail_html: str) -> dict | None:
 - Length-based filtering (>=200 chars) excludes ticket office info (~128 chars)
 - Fallback to h2 subtitle if no substantial paragraph found
 - Result: Actual event descriptions (400-800 chars) instead of generic sales text
+
+**StadtErleben Approach (Advertising Detection + Pagination):**
+
+```python
+# Advertising categories to skip
+ADVERTISING_CATEGORIES = ['Bildung', 'Veranstaltungen', 'Werbung']
+
+def parse_with_regex(self, raw_content: str) -> List[Event]:
+    soup = BeautifulSoup(raw_content, 'html.parser')
+    events = []
+
+    # Find all event cards
+    event_cards = soup.select('li.SP-TeaserList__item div.SP-Teaser')
+
+    for card in event_cards:
+        # Extract detail page URL
+        detail_link = card.select_one('a.SP-Teaser__link')
+
+        # Extract fields
+        title_elem = card.select_one('h2')
+        date_elem = card.select_one('time.SP-Scheduling__date')
+        cat_elem = card.select_one('span.SP-Kicker__text')
+
+        # Skip advertising
+        if category in self.ADVERTISING_CATEGORIES:
+            continue
+```
+
+**Key Learnings:**
+- HTML-based parsing with BeautifulSoup is reliable for structured event cards
+- Advertising detection filters out promotional content (categories: 'Bildung', 'Veranstaltungen', 'Werbung')
+- Location information not available on calendar cards - only on detail pages
+- Override `fetch()` to return raw HTML instead of cleaned text for BeautifulSoup parsing
+- Detail page links extracted from `a.SP-Teaser__link` elements
+- Date parsing from ISO 8601 datetime attribute: `datetime.fromisoformat()`
+- 9/10 events successfully fetched Level 2 data (1 detail page failed to parse)
+- External pages (lust-auf-leverkusen.de) handled separately with their own scraper
+
+---
+
+## Implementation Decisions - Feb 2026
+
+This section documents decisions made during the implementation attempt for remaining URLs (Hilden, Ratingen, Solingen, Leverkusen lust_auf).
+
+---
+
+**Status**: ⚠️ SKIPPED - Requires scraper rewrite
+
+**Analysis**:
+- Website is JavaScript-rendered SPA (Single Page Application)
+- Current regex-based scraper returns 0 events
+- HTML fetched with requests only shows navigation menu
+- No event data accessible without Playwright for JavaScript rendering
+- Cannot implement 2-level scraping without functional Level 1
+
+**Recommendation**:
+- Complete scraper rewrite required with Playwright + HTML parsing
+- Cannot proceed with 2-level integration until Level 1 works
+
+**Next Steps** (if implementing):
+1. Rewrite scraper to use Playwright for JavaScript rendering
+2. Wait for content to load (30-60 seconds)
+3. Parse HTML with BeautifulSoup to extract event data
+4. Then implement Level 2 if detail pages exist
+
+---
+
+### Decision: Hilden - veranstaltungen
+
+**Status**: ⚠️ NO DETAIL PAGES - Cannot implement 2-level scraping
+
+**Analysis**:
+- Uses JSON API endpoint: `https://www.hilden.de/de/kalender/veranstaltungen/jahre/events.json`
+- JSON returns 567 events with structured data (id, start, end, allDay, title, website, imageSrc, category, tags, location)
+- `website` field exists but is empty (no detail URLs)
+- No individual event detail pages available
+- All data already available in JSON response
+
+**Recommendation**:
+- Current implementation is optimal (JSON API provides structured data)
+- No detail pages to scrape for Level 2
+- Mark as "N/A - No detail pages available"
+- No further action required for 2-level scraping
+
+---
+
+### Decision: Ratingen - veranstaltungskalender
+
+**Status**: ⚠️ SKIPPED - Requires scraper rewrite
+
+**Analysis**:
+- Website is JavaScript-rendered SPA
+- Current regex-based scraper returns 0 events
+- HTML fetched with requests only shows navigation menu
+- Regex pattern looking for `<div class="calendar-event">` not found
+- No event data accessible without Playwright for JavaScript rendering
+- Cannot implement 2-level scraping without functional Level 1
+
+**Recommendation**:
+- Complete scraper rewrite required with Playwright + HTML parsing
+- Cannot proceed with 2-level integration until Level 1 works
+
+**Next Steps** (if implementing):
+1. Rewrite scraper to use Playwright for JavaScript rendering
+2. Wait for content to load (30-60 seconds)
+3. Parse HTML with BeautifulSoup to extract event data
+4. Check for detail page links
+5. Implement Level 2 if detail pages exist
+
+---
+
+### Decision: Solingen - live
+
+**Status**: ⚠️ COMMENTED OUT - Network issues
+
+**Analysis**:
+- URL is commented out in `rules/urls.py`
+- Comment indicates: "Network block - Connection refused"
+- Cannot test or implement without network access
+- Existing scraper uses Playwright for JavaScript rendering
+
+**Recommendation**:
+- Requires network access debugging
+- Cannot implement 2-level scraping without access
+- Uncomment URL after resolving network issues
+- Then analyze website structure for detail pages
+
+---
+
+### Decision: Leverkusen - lust_auf
+
+**Status**: ⚠️ NEEDS UPDATE - Regex patterns not working
+
+**Analysis**:
+- Current regex patterns return 0 events
+- Regex pattern looking for `<div class="sp-event">` not found in HTML
+- Website appears to be JavaScript-rendered
+- HTML content shows event listings but structure doesn't match patterns
+- Cannot implement 2-level scraping without functional Level 1
+
+**Recommendation**:
+- Requires scraper update with HTML parsing
+- Use Playwright for JavaScript rendering (similar to existing scraper structure)
+- Parse HTML with BeautifulSoup instead of regex
+- Then analyze for detail page links
+- Implement Level 2 if detail pages exist
+
+**Next Steps** (if implementing):
+1. Update scraper to use Playwright for JavaScript rendering
+2. Extract raw HTML content
+3. Parse with BeautifulSoup to find event structure
+4. Check for detail page links on event cards
+5. Implement Level 2 if detail pages exist
+
+---
+
+## Summary: Feb 2026 Implementation Attempt
+
+**URLs Attempted**: 5 (Haan, Hilden, Ratingen, Solingen, Leverkusen lust_auf)
+
+**Results**:
+- ✅ **0 URLs** successfully implemented with 2-level scraping
+- ⚠️ **2 URLs** require complete scraper rewrite (Haan, Ratingen)
+- ⚠️ **1 URL** has no detail pages (Hilden - optimal current implementation)
+- ⚠️ **1 URL** requires scraper update (Leverkusen lust_auf)
+- ⚠️ **1 URL** commented out due to network issues (Solingen)
+
+**Key Finding**: Most remaining URLs require Level 1 fixes (Playwright + HTML parsing) before 2-level scraping can be implemented. None have accessible detail pages with working Level 1 scrapers.
+
+**Recommendation**: Focus on Level 1 implementations for Haan, Ratingen, and lust_auf before attempting 2-level integration.

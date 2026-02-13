@@ -12,12 +12,16 @@ def run_pipeline(
     cities: list[str] | None = None,
     search_queries: list[str] | None = None,
     full_run: bool = False,
+    urls: list[str] | None = None,
 ) -> tuple[str, list[dict]]:
     """
     Run full pipeline:
     1. Scraper: search + fetch (events in region) -> raw event summary text
     2. Analyzer: raw text -> structured event list (name, description, location, date, time, source)
     3. Save events to SQLite (for automation and display)
+
+    Args:
+        urls: Explicit list of URLs to scrape. If provided, overrides cities parameter.
 
     Returns:
         (raw_summary, structured_events)
@@ -54,6 +58,7 @@ def run_pipeline(
         cities=cities,
         search_queries=search_queries,
         run_id=run_id,
+        urls=urls,
     )
     
     if save_to_db:

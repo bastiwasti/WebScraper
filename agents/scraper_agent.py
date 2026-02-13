@@ -163,6 +163,7 @@ class ScraperAgent:
         urls_to_track: list[str] | None = None,
         run_id: int | None = None,
         logger: logging.Logger | None = None,
+        urls: list[str] | None = None,
     ) -> tuple[str, dict, dict]:
         """Run multiple searches and scrape fixed URLs for events with Rich progress tracking.
         
@@ -177,14 +178,21 @@ class ScraperAgent:
         # Get URLs from rules system
         urls_to_fetch: list[str] = []
         
-        # 1. Add city-specific URLs (all cities if not specified)
-        cities_to_scrape = cities if cities else list(CITY_URLS.keys())
-        for city in cities_to_scrape:
-            city_urls = get_urls_for_city(city)
-            for url in city_urls:
+        # 1. If explicit URLs provided, use those (overrides cities)
+        if urls:
+            for url in urls:
                 if url not in urls_to_fetch:
                     urls_to_fetch.append(url)
                     urls_to_track.append(url)
+        # 2. Otherwise, add city-specific URLs (all cities if not specified)
+        else:
+            cities_to_scrape = cities if cities else list(CITY_URLS.keys())
+            for city in cities_to_scrape:
+                city_urls = get_urls_for_city(city)
+                for url in city_urls:
+                    if url not in urls_to_fetch:
+                        urls_to_fetch.append(url)
+                        urls_to_track.append(url)
         
         # 2. Add custom search queries if provided
         if search_queries:
@@ -314,6 +322,7 @@ class ScraperAgent:
         max_search: int = 8,
         fetch_urls: int = 3,
         cities: list[str] | None = None,
+        urls: list[str] | None = None,
     ) -> tuple[str, dict, dict]:
         """Search for events, fetch pages from fixed URLs, and return a summarized event text.
 
@@ -321,6 +330,7 @@ class ScraperAgent:
 
         Args:
             run_id: The pipeline run_id (from create_run). Required for tracking.
+            urls: Explicit list of URLs to scrape. If provided, overrides cities parameter.
 
         Returns:
             tuple of (summary, url_metrics, city_event_counts)
@@ -340,6 +350,7 @@ class ScraperAgent:
             urls_to_track=urls_to_track,
             run_id=run_id,
             logger=logger,
+            urls=urls,
         )
 
         if not search_queries:

@@ -1,141 +1,286 @@
-"""Regex parser for Leverkusen stadt-erleben calendar.
+"""HTML-based parser for Leverkusen Stadt_Erleben events."""
 
-Event structure (based on actual HTML):
-- Title: <h2 class="SP-Headline__small SP-Teaser__headline">...</h2>
-- Category: <span class="SP-Kicker__text">...</span>
-- Date: <time class="SP-Scheduling__date" datetime="...">...</time>
-- Location: <span class="SP-EventInformation__location">...</span>
-- Description: <div class="SP-Paragraph SP-Teaser__paragraph"><p>...</p></div>
-"""
-
-import re
-from typing import List
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-
+from typing import List, Optional
 from rules.base import BaseRule, Event
+import requests
 
 
 class StadtErlebenRegex(BaseRule):
-    """Regex parser for Leverkusen stadt-erleben calendar events.
+    """HTML parser for Leverkusen Stadt_Erleben events.
     
-    Handles flexible date formats and 14-day filtering.
+    Extracts these fields:
+    - name (required): Event name/title
+    - date (required): Event date (DD.MM.YYYY)
+    - time (required): Event time (HH:MM format)
+    - location (required): Event location/venue
+    - description (required): Event description
+    - source (required): Set to self.url
+    - category (required): Inferred from event data
+    - event_url: Extracted from detail page links
+    - raw_data: Populated by Level 2 scraping
+    
+    NO DATE FILTERING:
+    - Fetches all events (no automatic date restriction)
+    - Date filtering applied via URL parameters by scraper_agent
+    
+    ADVERTISING DETECTION:
+    - Skips events with categories: 'Bildung', 'Veranstaltungen', 'Werbung'
+    - These are promotional content, not real events
+    
+    PAGINATION SUPPORT:
+    - Supports server-side pagination
+    - URL pattern: ?sp:page[eventSearch-1.form][0]={page_num}
     """
 
+    # Advertising categories to skip
+    ADVERTISING_CATEGORIES = ['Bildung', 'Veranstaltungen', 'Werbung']
+    
+    # Pagination: 14-day window from today
     def __init__(self, url: str):
         super().__init__(url)
         self.today = datetime.now()
         self.date_cutoff = self.today + timedelta(days=14)
-
-    def get_regex_patterns(self) -> List[re.Pattern]:
-        """Return regex patterns for stadt-erleben events."""
-        patterns = [
-            re.compile(
-                r'<div class="SP-Teaser"[^>]*?>\s*<h2 class="SP-Headline__small SP-Teaser__headline">([^<]+)</h2>\s*'
-                r'<span class="SP-Kicker__text">([^<]+)</span>\s*'
-                r'<time class="SP-Scheduling__date"[^>]+datetime="([^"]+)"[^>]*>'
-                r'<span class="SP-EventInformation__location">([^<]+)</span>\s*'
-                r'<div class="SP-Paragraph SP-Teaser__paragraph"[^>]*>\s*<p[^>]*>([^<]+)</p>\s*</div>'
-            ),
-        ]
-        return patterns
+    
+    def get_regex_patterns(self) -> List:
+        """Return regex patterns (fallback only, HTML parsing is primary)."""
+        return []
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
-        """Handle Leverkusen stadt-erleben pages."""
+        """Handle Leverkusen stadt_erleben pages."""
         return "leverkusen.de" in url and "stadt-erleben/veranstaltungskalender/" in url
 
-    def _parse_date_from_datetime(self, date_str: str = None, day: str = None, month: str = None) -> str:
-        """Parse date from datetime attribute or day/month text.
+    def parse_with_regex(self, raw_content: str) -> List[Event]:
+        """Parse content using HTML parsing (primary method)."""
+        soup = BeautifulSoup(raw_content, 'html.parser')
+        events = []
         
-        Args:
-            date_str: Full datetime like "2026-02-03T18:00:00+01:00"
-            day: Day number like "03"
-            month: Month name like "März"
+        # Find all event cards
+        event_cards = soup.select('li.SP-TeaserList__item div.SP-Teaser')
         
-        Returns:
-            DD.MM.YYYY format
-        """
-        if date_str:
+        for card in event_cards:
             try:
-                clean_date = date_str.split('+')[0]
-                dt = datetime.fromisoformat(clean_date)
-                return dt.strftime("%d.%m.%Y")
-            except (ValueError, AttributeError):
-                pass
-        
-        if day and month:
-            month_map = {
-                'Januar': 1, 'Februar': 2, 'März': 3, 'April': 4, 'Mai': 5, 'Juni': 6,
-                'Juli': 7, 'August': 8, 'September': 9, 'Oktober': 10, 'November': 11, 'Dezember': 12
-            }
-            month_num = month_map.get(month, 1)
-            if month_num:
-                try:
-                    dt = datetime(self.today.year, month_num, int(day))
-                    return dt.strftime("%d.%m.%Y")
-                except ValueError:
-                    pass
-        
-        return self.today.strftime("%d.%m.%Y")
-
-    def _is_within_14_days(self, date_str: str = None, day: str = None, month: str = None) -> bool:
-        """Check if event date is within 14 days from today."""
-        if date_str:
-            try:
-                date = self._parse_date_from_datetime(date_str, day, month)
-                event_date = datetime.strptime(date, "%d.%m.%Y")
-                days_diff = (event_date.date() - self.today.date()).days
-                return 0 <= days_diff <= 14
-            except Exception:
-                return True
-        return True
-
-    def _create_event_from_match(self, match: tuple) -> Event | None:
-        """Create Event from regex match tuple.
-        
-        Args:
-            match: Tuple containing all captured groups from regex.
+                # Extract detail page URL
+                detail_link = card.select_one('a.SP-Teaser__link')
+                if not detail_link:
+                    continue
+                
+                href_attr = detail_link.get('href')
+                detail_url = ''
+                if isinstance(href_attr, str) and href_attr:
+                    detail_url = href_attr
+                    if detail_url.startswith('/'):
+                        detail_url = f"https://www.leverkusen.de{detail_url}"
+                
+                # Extract event title
+                title_elem = card.select_one('h2')
+                title = title_elem.get_text(strip=True) if title_elem else ""
+                if not title:
+                    continue
+                
+                # Extract date and time
+                date_elem = card.select_one('time.SP-Scheduling__date')
+                time_elem = card.select_one('span.SP-EventInformation__time')
+                
+                # Parse date from datetime attribute
+                date_str = ""
+                time_str = ""
+                event_date = None
+                if date_elem:
+                    date_attr = date_elem.get('datetime')
+                    if date_attr and isinstance(date_attr, str):
+                        date_str = self._parse_datetime(date_attr)
+                        # Parse event date for filtering
+                        try:
+                            event_date = datetime.strptime(date_str, "%d.%m.%Y").date()
+                        except Exception:
+                            pass
+                
+                if time_elem:
+                    time_str = time_elem.get_text(strip=True)
+                
+                # Skip events outside 14-day window
+                if event_date:
+                    days_from_today = (event_date - self.today.date()).days
+                    if days_from_today < 0 or days_from_today > 14:
+                        continue
+                
+                # Extract location (not available on card, leave empty)
+                location = ""
+                
+                # Extract category
+                cat_elem = card.select_one('span.SP-Kicker__text')
+                category = cat_elem.get_text(strip=True) if cat_elem else "other"
+                
+                # Extract description (from teaser)
+                desc_elem = card.select_one('div.SP-Paragraph.SP-Teaser__paragraph')
+                description = desc_elem.get_text(strip=True) if desc_elem else ""
+                
+                # Skip advertising
+                if category in self.ADVERTISING_CATEGORIES:
+                    continue
+                
+                events.append(Event(
+                    name=title,
+                    description=description,
+                    location=location,
+                    date=date_str,
+                    time=time_str,
+                    source=self.url,
+                    category=category,
+                    event_url=detail_url or '',
+                ))
             
+            except Exception as e:
+                print(f"[StadtErleben] Failed to parse event card: {e}")
+                continue
+        
+        print(f"[StadtErleben] HTML parsing returned {len(events)} events")
+        return events
+    
+    def _parse_datetime(self, iso_datetime: str) -> str:
+        """Parse ISO 8601 datetime to DD.MM.YYYY."""
+        try:
+            dt = datetime.fromisoformat(iso_datetime.split('+')[0])
+            return dt.strftime("%d.%m.%Y")
+        except Exception:
+            return ""
+    
+    def get_event_urls_from_html(self, raw_html: str) -> dict[str, str]:
+        """Extract event detail URLs from calendar page raw HTML.
+        
         Returns:
-            Event object or None if date not within 14 days.
+            Dictionary mapping event name to detail URL.
         """
-        title = match[0].strip() if len(match) > 0 else ""
-        category = match[1].strip() if len(match) > 1 else ""
-        date_str = match[2] if len(match) > 2 else None
-        day = match[3] if len(match) > 3 else None
-        month = match[4] if len(match) > 4 else None
-        raw_date = match[5] if len(match) > 5 else ""
-        time_str = match[6].strip() if len(match) > 6 else ""
-        location = match[7].strip() if len(match) > 7 else ""
-        description = match[8].strip() if len(match) > 8 else ""
+        soup = BeautifulSoup(raw_html, 'html.parser')
+        event_url_map = {}
         
-        if not title or not date_str:
-            return None
+        # Find all event cards with detail links
+        for card in soup.select('li.SP-TeaserList__item'):
+            try:
+                detail_link = card.select_one('a.SP-Teaser__link')
+                title_elem = card.select_one('h2')
+                
+                if detail_link and title_elem:
+                    title = title_elem.get_text(strip=True)
+                    href_attr = detail_link.get('href')
+                    if isinstance(href_attr, str) and href_attr:
+                        href = href_attr
+                        if href.startswith('/'):
+                            href = f"https://www.leverkusen.de{href}"
+                        event_url_map[title] = href
+            
+            except Exception as e:
+                continue
         
-        date = self._parse_date_from_datetime(date_str, day, month)
+        print(f"[StadtErleben] Extracted {len(event_url_map)} event detail URLs")
+        return event_url_map
+    
+    def parse_internal_detail_page(self, detail_html: str) -> dict | None:
+        """Parse internal leverkusen.de detail page.
         
-        if not self._is_within_14_days(date_str, day, month):
-            return None
+        Args:
+            detail_html: Raw HTML content from event detail page.
         
-        category_clean = category
-        if category_clean == "-":
-            category_clean = ""
+        Returns:
+            Dictionary with detail information (detail_description, end_time).
+        """
+        soup = BeautifulSoup(detail_html, 'html.parser')
+        detail_data = {}
         
-        title = re.sub(r'&[a-z]+;', ' ', title)
-        title = title.replace('&quot;', '"').replace('&apos;', "'")
+        # Extract full description
+        desc_elem = soup.select_one('div.tribe-events-single-event-description')
+        if desc_elem:
+            paragraphs = desc_elem.select('p')
+            descriptions = []
+            for p in paragraphs:
+                text = p.get_text(strip=True)
+                if text and len(text) > 50:
+                    descriptions.append(text)
+            
+            if descriptions:
+                detail_data['detail_description'] = '\n\n'.join(descriptions[:2])
         
-        description = re.sub(r'&[a-z]+;', ' ', description)
+        # Extract end time
+        end_time_elem = soup.select_one('div.tribe-events-single-event-information time')
+        if end_time_elem:
+            time_str = end_time_elem.get_text(strip=True)
+            # Parse "bis HH:MM Uhr" format
+            import re
+            match = re.search(r'bis\s+(\d{1,2}:\d{2})\s+Uhr', time_str)
+            if match:
+                hours = match.group(1)
+                minutes = match.group(2)
+                detail_data['end_time'] = f"{hours:02d}:{minutes}:00 Uhr"
         
-        time = time_str if time_str else ""
-        if ":" in time_str:
-            time = time_str
+        return detail_data if detail_data else None
+    
+    def parse_detail_page(self, detail_html: str) -> dict | None:
+        """Parse detail page (handles both internal and external pages)."""
+        # Check if internal or external page
+        if 'leverkusen.de' in detail_html:
+            return self.parse_internal_detail_page(detail_html)
         
-        return Event(
-            name=title,
-            description=description,
-            location=location,
-            date=date,
-            time=time,
-            source=self.url,
-            category=category_clean if category_clean else "other",
-        )
+        # Handle external pages (lust-auf-leverkusen.de)
+        # These are separate sites with their own scrapers - skip
+        return None
+    
+    def fetch_level2_data(self, events: List[Event], raw_html: str | None = None) -> List[Event]:
+        """Fetch Level 2 detail data for events.
+        
+        For each event, fetches detail page and extracts:
+        - detail_description: Full event description
+        - end_time: End time (if available)
+        
+        Args:
+            events: List of Event objects from Level 1 parsing.
+            raw_html: Raw HTML content from main page (for URL extraction).
+        
+        Returns:
+            List of Event objects with Level 2 data in raw_data field.
+        """
+        if not events or not raw_html:
+            return events
+        
+        event_url_map = self.get_event_urls_from_html(raw_html)
+        
+        print(f"[StadtErleben Level 2] Fetching detail pages for {len(events)} events...")
+        
+        for event in events:
+            detail_url = event_url_map.get(event.name, "")
+            if not detail_url:
+                # Skip external pages
+                continue
+                if 'lust-auf-leverkusen.de' in detail_url:
+                    continue
+            
+            event.event_url = detail_url
+            
+            try:
+                resp = requests.get(
+                    detail_url,
+                    timeout=15,
+                    headers={"User-Agent": "WeeklyMail/1.0"}
+                )
+                resp.raise_for_status()
+                detail_html = resp.text
+                
+                # Parse detail page
+                detail_data = self.parse_detail_page(detail_html)
+                
+                if detail_data:
+                    event.raw_data = detail_data
+                    event.source = detail_url
+                    print(f"  ✓ Fetched details for: {event.name[:50]}")
+                else:
+                    print(f"  ✗ Failed to parse details for: {event.name[:50]}")
+            
+            except Exception as e:
+                print(f"  ✗ Failed to fetch detail page {detail_url}: {e}")
+                continue
+        
+        print(f"[StadtErleben Level 2] Completed: {sum(1 for e in events if e.raw_data)}/{len(events)} events with detail data")
+        
+        return events

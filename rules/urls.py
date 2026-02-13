@@ -12,7 +12,7 @@ from typing import List, Dict
 CITY_URLS: Dict[str, Dict[str, str]] = {
     "monheim": {
         "terminkalender": "https://www.monheim.de/freizeit-tourismus/terminkalender",
-        "kulturwerke": "https://www.monheimer-kulturwerke.de/de/kalender/",
+        "kulturwerke": "https://www.monheimer-kulturwerke.de/d  e/kalender/",
     },
     "langenfeld": {
         "city_events": "https://www.langenfeld.de/Startseite/Aktuelles-und-Information/Veranstaltungen.htm",

@@ -55,19 +55,31 @@ def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> tuple[list
     """
     try:
         scraper = create_scraper(url)
-        content = scraper.fetch()
         regex_parser = create_regex(url)
-        events, extraction_method = regex_parser.extract_events_with_method(content, use_llm_fallback)
         
-        # Attempt Level 2 scraping if scraper supports it
-        try:
-            if hasattr(scraper, 'fetch_raw_html'):
-                raw_html = scraper.fetch_raw_html()
-                events = regex_parser.fetch_level2_data(events, raw_html)
-        except Exception as e:
-            print(f"Warning: Level 2 scraping failed for {url}: {e}")
-        
-        return events, extraction_method
+        # Check if scraper supports pagination (stadt_erleben)
+        if hasattr(scraper, 'fetch_all_pages'):
+            # Use pagination for 14-day window
+            all_events = []
+            print(f"[fetch_events_from_url] Using pagination for {url}")
+            
+            # Fetch all pages (events already have Level 2 data applied internally)
+            events = scraper.fetch_all_pages()
+            return events, "regex"
+        else:
+            # Standard single-page fetching
+            content = scraper.fetch()
+            events, extraction_method = regex_parser.extract_events_with_method(content, use_llm_fallback)
+            
+            # Attempt Level 2 scraping if scraper supports it
+            try:
+                if hasattr(scraper, 'fetch_raw_html'):
+                    raw_html = scraper.fetch_raw_html()
+                    events = regex_parser.fetch_level2_data(events, raw_html)
+            except Exception as e:
+                print(f"Warning: Level 2 scraping failed for {url}: {e}")
+            
+            return events, extraction_method
     except Exception as e:
         print(f"Error fetching events from {url}: {e}")
         return [], "error"
