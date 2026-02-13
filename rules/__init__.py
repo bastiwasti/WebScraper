@@ -57,15 +57,16 @@ def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> tuple[list
         scraper = create_scraper(url)
         regex_parser = create_regex(url)
         
+        # Check if scraper supports API fetching (lust_auf)
+        if hasattr(scraper, 'fetch_events_from_api'):
+            # Use API for fetching all events
+            all_events = scraper.fetch_events_from_api()
+            return all_events, "regex"
         # Check if scraper supports pagination (stadt_erleben)
-        if hasattr(scraper, 'fetch_all_pages'):
+        elif hasattr(scraper, 'fetch_all_pages'):
             # Use pagination for 14-day window
-            all_events = []
-            print(f"[fetch_events_from_url] Using pagination for {url}")
-            
-            # Fetch all pages (events already have Level 2 data applied internally)
-            events = scraper.fetch_all_pages()
-            return events, "regex"
+            all_events = scraper.fetch_all_pages()
+            return all_events, "regex"
         else:
             # Standard single-page fetching
             content = scraper.fetch()
