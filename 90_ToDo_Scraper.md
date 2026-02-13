@@ -643,7 +643,48 @@ This section documents decisions made during the implementation attempt for rema
 - ⚠️ **1 URL** has no detail pages (Hilden - optimal current implementation)
 - ⚠️ **1 URL** requires scraper update (Leverkusen lust_auf)
 - ⚠️ **1 URL** commented out due to network issues (Solingen)
+646: 
+647: **Key Finding**: Most remaining URLs require Level 1 fixes (Playwright + HTML parsing) before 2-level scraping can be implemented. None have accessible detail pages with working Level 1 scrapers.
+648: 
+649: **Recommendation**: Focus on Level 1 implementations for Haan, Ratingen, and lust_auf before attempting 2-level integration.
+650: 
 
-**Key Finding**: Most remaining URLs require Level 1 fixes (Playwright + HTML parsing) before 2-level scraping can be implemented. None have accessible detail pages with working Level 1 scrapers.
+---
 
-**Recommendation**: Focus on Level 1 implementations for Haan, Ratingen, and lust_auf before attempting 2-level integration.
+## Summary: Ratingen - JavaScript Loading Investigation
+
+**Status**: ⚠️ PARTIAL - Scraper created but events NOT accessible
+
+**Technical Issues**:
+- Event data NOT in initial HTML even after 81s wait time
+- HTML only contains navigation menu and cookie consent dialog
+- No divs with event-related classes found
+- No iframes with event content
+- No scripts with actual event data
+- `tx_citkoevents3_list` pattern found but no data attached
+- Events loaded via JavaScript/AJAX API calls after page initialization
+
+**Files Created**:
+1. `rules/cities/ratingen/kulturprogramm/scraper.py` - Playwright-based scraper
+2. `rules/cities/ratingen/kulturprogramm/regex.py` - HTML parser for both sections
+3. `rules/cities/ratingen/kulturprogramm/__init__.py` - Module initialization
+4. `rules/urls.py` - Added kulturprogramm URL mapping
+
+**LSP Errors Fixed**:
+- Fixed BeautifulSoup NavigableString to str casts
+- Fixed .get() method calls with explicit default values
+- Added early return if no event cards found
+- All LSP errors resolved
+
+**Time Attempts**:
+1. 30s timeout with networkidle - Timed out
+2. 120s timeout with networkidle - Timed out
+3. 45s fixed wait + scrolling - Found 0 events after 81.30s total
+4. Inspected saved HTML - No event data found
+
+**Root Cause**:
+Event data is loaded via JavaScript/AJAX API calls after page initialization, not present in initial HTML. The API endpoint or data source is unknown and would require significant reverse engineering effort.
+
+**Recommendation**: Skip this URL and prioritize simpler sites (priority: LOW)
+
+---
