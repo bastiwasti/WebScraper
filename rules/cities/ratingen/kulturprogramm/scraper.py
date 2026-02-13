@@ -70,7 +70,7 @@ class KulturprogrammScraper(BaseScraper):
             page.goto(self.url, timeout=120000)
             
             # Wait for content to load
-            page.wait_for_timeout(10000)
+            page.wait_for_timeout(30000)
             
             # Scroll to load all content
             page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
