@@ -67,10 +67,10 @@ class KulturprogrammScraper(BaseScraper):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(self.url, timeout=120000)
+            page.goto(self.url)
             
-            # Wait for content to load
-            page.wait_for_timeout(30000)
+            # Wait for content to load (fixed time, not networkidle)
+            page.wait_for_timeout(15000)
             
             # Scroll to load all content
             page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
