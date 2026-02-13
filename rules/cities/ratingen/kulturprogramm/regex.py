@@ -68,13 +68,22 @@ class KulturprogrammRegex(BaseRule):
                 print(f"[Ratingen Kulturprogramm] Found {len(cards)} cards using selector: {selector}")
                 break
         
+        if not cards:
+            print(f"[Ratingen Kulturprogramm] No event cards found with any selector")
+            return []
+        
         for card in cards:
             try:
                 href = card.get('href', '')
                 
-                # Extract event_id from URL pattern
-                match = re.search(r'event_id=(\d+)', href)
-                event_id = match.group(1) if match and isinstance(match.group(), str) else ''
+                # Extract event_id from URL pattern (cast to str first for BeautifulSoup NavigableString)
+                href_str = str(href) if href else ''
+                match = re.search(r'event_id=(\d+)', href_str)
+                if match:
+                    event_id_str = match.group(1)
+                    event_id = event_id_str if isinstance(event_id_str, str) else ''
+                else:
+                    event_id = ''
                 
                 # Extract fields from card
                 day_elem = card.select_one('.event-date-day')
@@ -131,7 +140,8 @@ class KulturprogrammRegex(BaseRule):
                 href = card.get('href', '')
                 
                 # Extract slug from URL
-                slug = href.split('/')[-1]
+                href_str = str(href) if href else ''
+                slug = href_str.split('/')[-1] if href_str else ''
                 
                 # Extract fields
                 title_elem = card.select_one('.subject-heading')
@@ -147,17 +157,18 @@ class KulturprogrammRegex(BaseRule):
                 description = date_text
                 
                 # Build detail URL
-                if href.startswith('/'):
-                    detail_url = f"https://www.stadt-ratingen.de{href}"
+                href_str = str(href) if href else ''
+                if href_str.startswith('/'):
+                    detail_url = f"https://www.stadt-ratingen.de{href_str}"
                 else:
-                    detail_url = href
+                    detail_url = href_str
                 
                 events.append(Event(
                     name=title,
                     description=description,
                     location="",
-                    date=date_time_str.get('date') if date_time_str else "",
-                    time=date_time_str.get('time') if date_time_str else "",
+                    date=date_time_str.get('date', '') if date_time_str else "",
+                    time=date_time_str.get('time', '') if date_time_str else "",
                     source=self.url,
                     category="kindertheater",
                     event_url=detail_url,
@@ -178,8 +189,9 @@ class KulturprogrammRegex(BaseRule):
         try:
             # Extract day and month
             # Format: "Donnerstag, 25.9.25, um 16 Uhr in der Stadthalle"
-            date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
-            time_match = re.search(r'(\d{1,2}:\d{2})\s+Uhr', text)
+            text_str = str(text) if text else ''
+            date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text_str)
+            time_match = re.search(r'(\d{1,2}:\d{2})\s+Uhr', text_str)
             
             date_str = date_match.group(0) if date_match else ''
             time_str = time_match.group(1) if time_match else ''

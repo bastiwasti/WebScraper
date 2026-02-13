@@ -64,7 +64,7 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 | **Leverkusen** | lust_auf | https://lust-auf-leverkusen.de/ | Event detail pages | ⚠️ NEEDS UPDATE - Regex patterns return 0 events, pattern `<div class="sp-event">` not found, requires scraper update with HTML parsing |
 | **Leverkusen** | stadt_erleben | https://www.leverkusen.de/stadt-erleben/veranstaltungskalender/ | Calendar structure | ✅ Complete - HTML-based parser with Level 2, 14-day pagination, 91/88 events with Level 2 data |
 | **Hilden** | veranstaltungen | https://www.hilden.de/de/veranstaltungen/ | Detail pages exist | ⚠️ NO DETAIL PAGES - JSON API provides all data (567 events), no individual detail pages, `website` field empty, current implementation is optimal |
-| **Ratingen** | veranstaltungskalender | https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell | Rich calendar data | ⚠️ SKIPPED - JavaScript-rendered SPA, regex returns 0 events, requires complete scraper rewrite with Playwright |
+| **Ratingen** | kulturprogramm | https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell | Rich calendar data | ⚠️ PARTIAL - JavaScript-rendered SPA with complex loading, currently extracting 3 placeholder events (no actual data), needs API investigation |
 | **Solingen** | live | https://live.solingen.de/ | Event pages | ⚠️ COMMENTED OUT - Network block (connection refused), URL commented out in urls.py, cannot access |
 | **Dormagen** | - | - | Needs scraper first | Implement Level 1, then add Level 2 |
 
@@ -78,7 +78,8 @@ This file tracks scrapers that need  be upgraded to support 2-level scraping (fe
 | Langenfeld | schauplatz | ✅ Complete - 39/39 events with Level 2 data |
 | Leverkusen | stadt_erleben | ✅ Complete - 88/91 events with Level 2 data (14-day pagination) |
 | Hilden | veranstaltungen | ⚠️ No detail pages - JSON API optimal, no Level 2 possible |
-| Ratingen | veranstaltungskalender | ⚠️ Skipped - Requires Level 1 rewrite (JavaScript-rendered) |
+| Ratingen | kulturprogramm | ⚠️ Partial - JavaScript-rendered SPA, needs API investigation (LOW priority) |
+| Ratingen | veranstaltungskalender | ⚠️ Skipped - JavaScript-rendered SPA, regex returns 0 events |
 | Solingen | live | ⚠️ Commented out - Network issues, cannot test |
 | Leverkusen | lust_auf | ⚠️ Needs update - Regex patterns broken, requires HTML parsing |
 
@@ -559,6 +560,55 @@ This section documents decisions made during the implementation attempt for rema
 ### Decision: Leverkusen - lust_auf
 
 **Status**: ⚠️ NEEDS UPDATE - Regex patterns not working
+
+### Decision: Ratingen - kulturprogramm
+
+**Status**: ⚠️ PARTIAL - JavaScript-rendered SPA with complex loading
+
+**Analysis**:
+- Website: https://www.stadt-ratingen.de/kultur-und-tourismus/kulturprogramm-aktuell
+- Type: JavaScript-rendered SPA (TYPO3 CMS)
+- Content Loading: Events loaded via JavaScript after page initialization
+- Page Load Time: ~41 seconds (very slow)
+- Structure: Two main sections on page:
+  - Kulturprogramm 2025/2026 (23 events expected)
+  - Kindertheater 2025/2026 (5 events expected)
+  - Sunday Jazz (informational, no events)
+- Current State: Playwright scraper created, 120s timeout
+- Extraction Results: Finding 3 placeholder events with no actual data (all "Nicht im Text angegeben")
+
+**Technical Issues**:
+- API endpoint `/veranstaltungskalender/veranstaltung-details` returns HTML (works for individual details)
+- List API endpoint returns 500 errors
+- HTML content fetched with requests only shows navigation menu (no events)
+- JavaScript rendering required, but event data loads slowly
+- LLM finding 3 events but they have no actual event data (just informational text)
+
+**Recommendation**:
+1. **INVESTIGATION NEEDED**: Find how event data is actually loaded (AJAX endpoint, JavaScript data structure, or direct API)
+2. **OPTIONS**:
+   - Option A: Deep reverse engineering of JavaScript code to find data source
+   - Option B: Manual testing with browser dev tools to monitor network requests
+   - Option C: Contact city administration for API access
+   - Option D: Skip this URL and prioritize simpler sites
+3. **Priority**: LOW - Complex case requiring significant investigation time
+4. **NEXT URL**: Move to next city (Haan, Hilden, Ratingen veranstaltungskalender, Solingen, Leverkusen lust_auf)
+
+**Files Created**:
+- `rules/cities/ratingen/kulturprogramm/scraper.py` - Playwright-based scraper with 120s timeout
+- `rules/cities/ratingen/kulturprogramm/regex.py` - HTML parser for both sections (Kulturprogramm + Kindertheater)
+- `rules/cities/ratingen/kulturprogramm/__init__.py` - Module initialization
+- `rules/urls.py` - Added kulturprogramm URL mapping
+
+**Next Steps**:
+1. Investigate JavaScript data loading mechanism
+2. Find actual API endpoint or AJAX calls
+3. Update scraper with correct data extraction method
+4. Test and verify event count (28 events expected: 23 kultur + 5 kindertheater)
+5. Implement Level 3 detail page fetching for all 28 events
+6. Save to database
+
+---
 
 **Analysis**:
 - Current regex patterns return 0 events
