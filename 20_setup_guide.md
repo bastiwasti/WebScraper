@@ -38,12 +38,6 @@ Each scraper must extract events with these fields:
 rules/
 └── cities/
     ├── __init__.py                      # Empty (module marker)
-    ├── solingen/                        # City folder (lowercase)
-    │   ├── __init__.py
-    │   └── live/                        # Subfolder for specific URL
-    │       ├── __init__.py              # Empty (module marker)
-    │       ├── scraper.py               # REQUIRED: URL-specific scraper
-    │       └── regex.py                 # REQUIRED: URL-specific regex parser
     ├── monheim/
     │   ├── __init__.py
     │   ├── terminkalender/              # Subfolder 1
@@ -68,15 +62,6 @@ rules/
 ```
 
 **Important**: City-level `scraper.py` and `regex.py` files (directly in the city folder, not in subfolders) are **NOT allowed** and will be removed. All scrapers must be in subfolders, one per URL.
-rules/
-└── cities/
-    ├── __init__.py                      # Empty (module marker)
-    ├── solingen/                        # City folder (lowercase)
-    │   ├── __init__.py
-    │   ├── scraper.py                   # Optional: city-level scraper
-    │   ├── regex.py                     # Optional: city-level regex parser
-    │   └── live/                        # Subfolder for specific URL
-    │       ├── __init__.py              # Empty (module marker)
     │       ├── scraper.py               # REQUIRED: URL-specific scraper
     │       └── regex.py                 # REQUIRED: URL-specific regex parser
     ├── monheim/
@@ -1381,7 +1366,7 @@ for url, entry in rules.items():
 python3 main.py --cities monheim
 
 # Run scraper for multiple cities
-python3 main.py --cities monheim langenfeld solingen
+python3 main.py --cities monheim langenfeld
 ```
 
 ### 5. Verbose Mode
@@ -1395,7 +1380,7 @@ python3 main.py --cities monheim --verbose
 ## Naming Conventions
 
 ### Directories & Files
-- **City folder**: Lowercase (e.g., `monheim`, `solingen`, `leverkusen`)
+- **City folder**: Lowercase (e.g., `monheim`, `langenfeld`, `leverkusen`)
 - **Subfolder**: Lowercase with underscores (e.g., `terminkalender`, `stadt_erleben`, `lust_auf`)
 - **IMPORTANT**: Each URL MUST have its own subfolder. No city-level scrapers allowed.
 - **`__init__.py`**: Required in city folder and all subfolders (can be empty)
@@ -1407,8 +1392,7 @@ python3 main.py --cities monheim --verbose
 ### Examples
 - `rules/cities/monheim/terminkalender/scraper.py` → `class TerminkalenderScraper`
 - `rules/cities/leverkusen/lust_auf/regex.py` → `class LustAufRegex`
-- `rules/cities/solingen/live/scraper.py` → `class LiveScraper`
-- `rules/cities/haan/kultur_freizeit/regex.py` → `class KulturFreizeitRegex`
+
 
 ### URL to File Mapping (in `rules/urls.py`)
 ```python
@@ -1539,7 +1523,7 @@ All scrapers must extract these fields:
 python3 main.py --cities monheim
 
 # Run multiple cities
-python3 main.py --cities monheim langenfeld solingen
+python3 main.py --cities monheim langenfeld
 
 # Verbose mode
 python3 main.py --cities monheim --verbose

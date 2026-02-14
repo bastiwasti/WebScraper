@@ -38,7 +38,7 @@ cp .env.example .env
 python main.py
 
 # Scrape specific cities
-python main.py --cities monheim solingen haan
+python main.py --cities monheim langenfeld
 
 # Custom search queries
 python main.py --search-queries "concerts this weekend" "jazz events"
@@ -56,8 +56,8 @@ python main.py [OPTIONS]
 Options:
   -l, --location TEXT       Location for search (default: "Monheim 40789")
   --cities TEXT             Cities to scrape (default: all)
-                             Available: monheim, langenfeld, leverkusen, hilden,
-                             dormagen, ratingen, haan
+                              Available: monheim, langenfeld, leverkusen, hilden,
+                              dormagen
   --search-queries TEXT     Custom search queries (optional)
   --max-search INTEGER      Max search results (default: 8)
   --agent [scraper|analyzer|all] Run specific agent (default: all)
@@ -74,7 +74,7 @@ Options:
 **Scrape specific cities:**
 
 ```bash
-python main.py --cities monheim solingen
+python main.py --cities monheim langenfeld
 ```
 
 **Run scraper only (saves to DB for later analysis):**
@@ -137,10 +137,10 @@ DB_PATH=data/events.db
 
 See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete list of supported cities and how to add new ones.
 
-**Currently Supported**: monheim, langenfeld, solingen, haan, leverkusen, hilden, dormagen, ratingen
+**Currently Supported**: monheim, langenfeld, leverkusen, hilden, dormagen
 
 **Advanced Features**:
-- **2-Level Scraping**: Monheim terminkalender fetches event detail pages for enhanced data (see [90_ToDo_Scraper.md](90_ToDo_Scraper.md))
+- **2-Level Scraping**: Monheim terminkalender, Langenfeld schauplatz, Leverkusen stadt_erleben, Leverkusen lust_auf, and Dormagen feste_veranstaltungen fetch event detail pages for enhanced data (see [90_ToDo_Scraper.md](90_ToDo_Scraper.md))
 ---
 
 ## Project Structure

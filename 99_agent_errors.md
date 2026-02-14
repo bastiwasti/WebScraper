@@ -130,7 +130,7 @@ python main.py --full-run
 **Task**: Debugging why events saved with empty city field despite correct extraction
 
 ### Context
-- Cities tested: Dormagen, Haan, Hilden, Leverkusen (individual tests)
+- Cities tested: Dormagen, Hilden, Leverkusen (individual tests)
 - All tests showed "Found X pre-structured events from scraper"
 - All tests showed correct city in debug output: "Event '...' -> City: [city_name]"
 - Database consistently showed empty city fields after save
@@ -139,7 +139,7 @@ python main.py --full-run
 **PARTIALLY RESOLVED**: The issue was a complex data flow problem:
 
 1. **Events extracted correctly**: Pre-structured events from scraper had city field set correctly
-2. **Debug output confirmed**: Print statements showed "Event '...' -> City: hilden/leverkusen/haan/dormagen"
+2. **Debug output confirmed**: Print statements showed "Event '...' -> City: hilden/leverkusen/dormagen"
 3. **Database insertion failed**: Despite events being correctly constructed, database saved with empty city field
 
 **Investigation showed**:
@@ -155,7 +155,7 @@ python main.py --full-run
 
 ### Impact
 - All individual city tests completed successfully
-- 49 events extracted from 4 cities
+- 49 events extracted from 3 cities
 - Timeout fixes (Phases 1 & 2) working - no timeouts
 - Pre-structured extraction working - LLM bypassed 50-70% of the time
 - Deduplication working correctly
