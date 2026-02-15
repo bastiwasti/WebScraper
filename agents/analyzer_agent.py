@@ -377,3 +377,44 @@ class AnalyzerAgent:
             print(f"  Deduplicated: {before_dedup} -> {after_dedup} events (removed {before_dedup - after_dedup} duplicates)")
         
         return all_events
+
+    def analyze_events(self, events: list, url_metrics: dict | None = None) -> list[dict[str, Any]]:
+        """Analyze structured Event objects from a single URL and return structured dicts.
+        
+        Args:
+            events: List of Event objects from scraper
+            url_metrics: URL metrics from scraper containing city information
+        
+        Returns:
+            List of structured event dicts ready for database insertion.
+        """
+        all_events = []
+        
+        for event in events:
+            if not event:
+                continue
+            
+            event_dict = {
+                "name": event.name,
+                "description": event.description,
+                "location": event.location,
+                "date": event.date,
+                "time": event.time,
+                "source": event.source,
+                "end_time": event.end_time,
+                "city": event.city,
+                "event_url": event.event_url,
+                "raw_data": event.raw_data,
+                "category": event.category if hasattr(event, 'category') else "other",
+            }
+            
+            infer_city = event.city or self._infer_city_from_source(event.source, url_metrics)
+            event_dict["city"] = infer_city
+            
+            if not event_dict.get("category") or event_dict["category"] == "other":
+                category = self._infer_category(event.description, event.name)
+                event_dict["category"] = category
+            
+            all_events.append(event_dict)
+        
+        return all_events

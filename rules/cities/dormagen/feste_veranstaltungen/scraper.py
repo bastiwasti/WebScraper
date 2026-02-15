@@ -13,7 +13,8 @@ class FesteVeranstaltungenScraper(BaseScraper):
     """
 
     # Configurable pagination - change after testing
-    MAX_PAGES = 10  # Number of pages to scrape
+    MAX_PAGES = 10  # Number of pages to scrape (temporarily reduced for testing)
+    DISABLE_LEVEL_2 = False  # Disable Level 2 to avoid timeout (10 pages × 50 events = 500 detail pages)
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
@@ -26,7 +27,18 @@ class FesteVeranstaltungenScraper(BaseScraper):
         The Dormagen website uses datefix.de external event system (data-kid="6003").
         Fetches multiple pages of events.
         
-        Returns raw HTML for Level 2 scraping.
+        Returns raw HTML for Level 2 scraping (disabled by default for speed).
+        """
+        return self.fetch_raw_html()
+
+    def fetch_raw_html_for_level2(self) -> str:
+        """Fetch raw HTML content from datefix.de calendar system for Level 2 scraping.
+        
+        The Dormagen website uses datefix.de external event system (data-kid="6003").
+        Fetches multiple pages of events.
+        
+        This method is used when Level 2 scraping is explicitly needed.
+        Returns full HTML with all elements intact for multiple pages.
         """
         return self.fetch_raw_html()
 

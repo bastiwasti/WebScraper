@@ -360,3 +360,98 @@ class ScraperAgent:
             summary = chain.invoke({"location_query": location_query, "raw_content": raw_content})
 
         return (summary, url_metrics, city_event_counts)
+
+    def scrape_urls_incrementally(
+        self,
+        run_id: int,
+        location: str = "",
+        search_queries: list[str] | None = None,
+        max_search: int = 8,
+        fetch_urls: int = 3,
+        cities: list[str] | None = None,
+        urls: list[str] | None = None,
+    ):
+        """Scrape URLs one at a time and yield events for each URL.
+        
+        This is used for incremental saving - each URL's events are yielded
+        immediately after scraping, allowing them to be saved to the database
+        before continuing to the next URL.
+        
+        Yields:
+            tuple of (url, events, extraction_method, url_metrics)
+        """
+        location_query = location or DEFAULT_LOCATION or "the user's area"
+        urls_to_fetch = urls or []
+        
+        logger = _setup_logging()
+        
+        if not urls:
+            urls_to_fetch = []
+            if cities:
+                for city in cities:
+                    city_urls = get_urls_for_city(city)
+                    urls_to_fetch.extend(city_urls)
+            else:
+                urls_to_fetch = list(CITY_URLS.values())
+        
+        if not urls_to_fetch:
+            print("No URLs to scrape.")
+            return
+        
+        console = Console()
+        
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("({task.completed}/{task.total})"),
+            TimeRemainingColumn(),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]Scraping URLs...", total=len(urls_to_fetch))
+            
+            for idx, url in enumerate(urls_to_fetch, 1):
+                city = get_city_for_url(url) or 'aggregator'
+                progress.update(task, description=f"[cyan]{idx}/{len(urls_to_fetch)} - {city.capitalize()} - {url[:60]}")
+                
+                url_metric = {
+                    'status': 'pending',
+                    'events_found': 0,
+                    'error': None,
+                    'start_time': time.time(),
+                    'end_time': None,
+                    'city': city
+                }
+                
+                try:
+                    events, extraction_method = fetch_events_from_url(url, use_llm_fallback=True)
+                    
+                    url_metric['status'] = 'success' if events else 'no_events'
+                    url_metric['events_found'] = len(events)
+                    url_metric['extraction_method'] = extraction_method
+                    url_metric['end_time'] = time.time()
+                    url_metric['elapsed'] = url_metric['end_time'] - url_metric['start_time']
+                    
+                    console.print(f"[green]✓[/green] [cyan]{city.capitalize()}[/cyan]: [yellow]{len(events)} events[/yellow] from [magenta]{url[:60]}[/magenta] ([blue]{url_metric['elapsed']:.2f}s[/blue])")
+                    
+                    if logger:
+                        logger.info(f"✓ {url} - {len(events)} events ({url_metric['elapsed']:.2f}s)")
+                    
+                    progress.advance(task)
+                    
+                    yield url, events, extraction_method, url_metric
+                    
+                except Exception as e:
+                    url_metric['status'] = 'failed'
+                    url_metric['error'] = str(e)
+                    url_metric['end_time'] = time.time()
+                    url_metric['elapsed'] = url_metric['end_time'] - url_metric['start_time']
+                    
+                    console.print(f"[red]✗[/red] [cyan]{city.capitalize()}[/cyan]: ERROR from [magenta]{url[:60]}[/magenta] - {e}")
+                    
+                    if logger:
+                        logger.error(f"✗ {url} - ERROR: {e}")
+                    
+                    progress.advance(task)
+                    
+                    yield url, [], "error", url_metric

@@ -857,19 +857,11 @@ def insert_events(
         init_db(conn)
         now = datetime.utcnow().isoformat() + "Z"
         
-        # Check if any event is from kulturwerke (for Level 2 filtering)
-        has_kulturwerke_events = any("monheimer-kulturwerke" in e.get("source", "") for e in events)
-        
         count = 0
         for e in events:
             name = (e.get("name") or "").strip()
             if not name:
                 continue
-            
-            # Skip only specific events (kulturwerke without Level 2 data)
-            # Other cities save all events normally
-            if "monheimer-kulturwerke" in e.get("source", "") and not e.get("raw_data"):
-                continue  # Skip Level 1-only events for kulturwerke
             # Level 1 date is always available from calendar listing
             # Level 2 detail_date is only used for validation, not as primary date source
             date_to_parse = e.get("date") or ""
@@ -1033,6 +1025,7 @@ def insert_raw_summary(
     conn: sqlite3.Connection | None = None,
     cities: list[str] | None = None,
     search_queries: list[str] | None = None,
+    fetch_urls: int = 0,
 ) -> int:
     """Store raw summary for debugging. Returns inserted row ID."""
     own_conn = conn is None
@@ -1046,10 +1039,10 @@ def insert_raw_summary(
         queries_json = json.dumps(search_queries) if search_queries else None
         cur = conn.execute(
             """
-            INSERT INTO raw_summaries (run_id, location, max_search, cities, search_queries, raw_summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO raw_summaries (run_id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (run_id, location or "", max_search, cities_json, queries_json, raw_summary, now),
+            (run_id, location or "", max_search, fetch_urls, cities_json, queries_json, raw_summary, now),
         )
         conn.commit()
         return cur.lastrowid or 0

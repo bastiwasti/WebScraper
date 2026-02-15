@@ -74,7 +74,7 @@ def fetch_events_from_url(url: str, use_llm_fallback: bool = True) -> tuple[list
             
             # Attempt Level 2 scraping if scraper supports it
             try:
-                if hasattr(scraper, 'fetch_raw_html'):
+                if hasattr(scraper, 'fetch_raw_html') and not getattr(scraper, 'DISABLE_LEVEL_2', False):
                     raw_html = scraper.fetch_raw_html()
                     events = regex_parser.fetch_level2_data(events, raw_html)
             except Exception as e:
