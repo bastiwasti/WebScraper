@@ -1324,6 +1324,355 @@ def _click_load_more_until_14_days(self, page) -> None:
         page.wait_for_timeout(1000)
 ```
 
+### Pattern 7: JSON/REST API Scraping
+Some event sites provide a REST API endpoint that returns structured JSON data instead of HTML. This is the most efficient method when available.
+
+**When to Use:**
+- Website has a publicly accessible REST API
+- API returns structured event data (name, date, time, location, description)
+- No HTML scraping needed
+
+**Implementation:**
+```python
+"""Scraper for REST API events."""
+
+import requests
+import json
+from datetime import datetime, timedelta
+from rules.base import BaseScraper, Event
+
+class EventsApiScraper(BaseScraper):
+    """Scraper for events via REST API.
+    
+    Fetches events directly from API endpoint, no HTML parsing needed.
+    """
+
+    @classmethod
+    def can_handle(cls, url: str) -> bool:
+        return "api.example.com" in url
+
+    def fetch(self) -> str:
+        """Fetch content from REST API.
+        
+        Note: Returns empty string since API events are extracted directly.
+        The regex parser will be skipped - see fetch_events_from_api().
+        """
+        return ""
+
+    def fetch_events_from_api(self) -> list[Event]:
+        """Fetch all events directly from REST API.
+        
+        Returns:
+            List of Event objects (bypasses regex parsing entirely).
+        """
+        base_url = "https://api.example.com/events"
+        all_events = []
+
+        # Calculate date range for 14 days
+        end_date = datetime.now()
+        start_date = datetime.now() - timedelta(days=30)
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        end_date_str = end_date.strftime("%Y-%m-%d")
+
+        print(f"[Events API] Fetching events from {start_date_str} to {end_date_str}")
+
+        # Paginate through API results
+        page = 1
+        max_pages = 10
+
+        while page <= max_pages:
+            params = {
+                'page': page,
+                'per_page': 50,
+                'start_date': start_date_str,
+                'end_date': end_date_str,
+            }
+
+            try:
+                resp = requests.get(
+                    base_url,
+                    params=params,
+                    timeout=30,
+                    headers={"User-Agent": "WeeklyMail/1.0"}
+                )
+                resp.raise_for_status()
+                events_data = resp.json()
+
+                if not events_data:
+                    break  # No more events
+
+                # Convert API data to Event objects
+                for api_event in events_data:
+                    event = self._convert_api_to_event(api_event)
+                    if event:
+                        all_events.append(event)
+
+                # Check if we have 14 days of events
+                if self._has_14_days_of_events(all_events):
+                    break
+
+                page += 1
+
+            except Exception as e:
+                print(f"[Events API] Failed to fetch page {page}: {e}")
+                break
+
+        pages_fetched = page - 1
+        print(f"[Events API] Fetched {len(all_events)} total events from {pages_fetched} pages")
+        return all_events
+
+    def _convert_api_to_event(self, api_event: dict) -> Event | None:
+        """Convert API response dictionary to Event object.
+        
+        Args:
+            api_event: Dictionary from REST API response
+        
+        Returns:
+            Event object or None if conversion fails
+        """
+        try:
+            title = api_event.get('title', '').strip()
+            description_html = api_event.get('description', '')
+
+            # Strip HTML from description
+            from bs4 import BeautifulSoup
+            description = BeautifulSoup(description_html, 'html.parser').get_text(strip=True)
+
+            # Parse date and time
+            start_date_str = api_event.get('start_date', '')
+            date_only = ""
+            time_only = ""
+
+            if start_date_str:
+                try:
+                    dt = datetime.strptime(start_date_str, "%Y-%m-%d %H:%M:%S")
+                    date_only = dt.strftime("%Y-%m-%d")
+                    time_only = dt.strftime("%H:%M")
+                except ValueError:
+                    pass
+
+            # Get venue/location
+            venue = api_event.get('venue', {})
+            location = venue.get('name', '').strip() if venue else ""
+
+            # Source URL
+            source_url = api_event.get('url', self.url)
+
+            # Build Event object
+            event = Event(
+                name=title,
+                description=description,
+                location=location,
+                date=date_only,
+                time=time_only,
+                source=source_url,
+                category="other",
+                city="",
+                event_url=source_url,
+                raw_data=api_event,
+            )
+
+            return event
+
+        except Exception as e:
+            print(f"[Events API] Failed to convert event: {e}")
+            return None
+
+    def _has_14_days_of_events(self, events: list[Event]) -> bool:
+        """Check if events list contains 14 days of events."""
+        if len(events) < 14:
+            return False
+
+        # Parse dates and check range
+        dates = []
+        for event in events:
+            try:
+                if event.date:
+                    dt = datetime.strptime(event.date, "%Y-%m-%d")
+                    dates.append(dt)
+            except Exception:
+                continue
+
+        if not dates:
+            return False
+
+        today = datetime.now()
+        cutoff = today + timedelta(days=14)
+
+        return min(dates) <= today and max(dates) >= cutoff
+```
+
+**Key Points:**
+- Override `fetch_events_from_api()` in scraper class
+- Return list of `Event` objects directly
+- `fetch()` returns empty string (not used)
+- `rules/__init__.py` checks for this method and calls it instead of regex parsing
+- Handle pagination in API calls
+- Convert API dictionaries to `Event` objects
+
+**Example Reference:**
+- `rules/cities/leverkusen/lust_auf/scraper.py` - Complete REST API implementation
+
+### Pattern 8: HTML Parsing Instead of Regex
+
+Some websites have structured HTML that's easier to parse with BeautifulSoup than regex patterns. This is useful when event data is in nested HTML elements.
+
+**When to Use:**
+- Event data is in structured HTML (tables, divs with classes)
+- Regex patterns are complex or brittle
+- Multiple event formats on same page
+- Better to parse DOM tree directly
+
+**Implementation in `regex.py`:**
+```python
+"""HTML parser for event pages."""
+
+import re
+from typing import List, Optional
+from bs4 import BeautifulSoup
+from rules.base import BaseRule, Event
+
+class EventHtmlParser(BaseRule):
+    """HTML parser for event pages.
+    
+    Parses HTML directly instead of using regex patterns.
+    Better for structured event data in HTML.
+    """
+
+    @classmethod
+    def can_handle(cls, url: str) -> bool:
+        return "example.com" in url and "events" in url
+
+    def get_regex_patterns(self) -> List[re.Pattern]:
+        """Return empty list - HTML parsing is used instead."""
+        return []
+
+    def parse_with_regex(self, raw_content: str) -> List[Event]:
+        """Parse events using HTML parsing (not regex).
+        
+        Override BaseRule method to parse HTML directly since website
+        has structured event data in HTML that's better than regex on cleaned text.
+        """
+        print("[HTML Parser] Using HTML parsing instead of regex")
+
+        # Fetch raw HTML for parsing
+        try:
+            from bs4 import BeautifulSoup
+            import requests
+
+            resp = requests.get(
+                self.url,
+                timeout=15,
+                headers={"User-Agent": "WeeklyMail/1.0"}
+            )
+            resp.raise_for_status()
+            html_content = resp.text
+        except Exception as e:
+            print(f"[HTML Parser] Failed to fetch HTML: {e}, falling back to raw content")
+            html_content = raw_content
+
+        soup = BeautifulSoup(html_content, 'html.parser')
+        events = []
+
+        # Parse events based on HTML structure
+        # Example: Events in div.event-item
+        for event_div in soup.find_all('div', class_='event-item'):
+            try:
+                # Extract event fields from HTML elements
+                title_elem = event_div.find('h3', class_='event-title')
+                date_elem = event_div.find('span', class_='event-date')
+                time_elem = event_div.find('span', class_='event-time')
+                loc_elem = event_div.find('div', class_='event-location')
+                desc_elem = event_div.find('p', class_='event-description')
+
+                name = title_elem.get_text(strip=True) if title_elem else ""
+                date = date_elem.get_text(strip=True) if date_elem else ""
+                time = time_elem.get_text(strip=True) if time_elem else ""
+                location = loc_elem.get_text(strip=True) if loc_elem else ""
+                description = desc_elem.get_text(strip=True) if desc_elem else ""
+
+                if name and date:
+                    events.append(Event(
+                        name=name,
+                        description=description,
+                        location=location,
+                        date=date,
+                        time=time,
+                        source=self.url,
+                        category="other",
+                    ))
+
+            except Exception as e:
+                print(f"[HTML Parser] Failed to parse event: {e}")
+                continue
+
+        print(f"[HTML Parser] HTML parsing returned {len(events)} events")
+        return events
+```
+
+**Key Points:**
+- Override `parse_with_regex()` in regex class
+- Parse HTML using BeautifulSoup directly
+- Return list of `Event` objects
+- `get_regex_patterns()` returns empty list
+- More robust than regex for complex HTML structures
+- Handles nested elements and attributes easily
+
+**Example Reference:**
+- `rules/cities/monheim/terminkalender/regex.py` - Complete HTML parsing implementation
+- `rules/cities/hilden/veranstaltungen/regex.py` - JSON parsing variant
+
+### Pattern 9: Disabling Level 2 Scraping
+
+Level 2 scraping (fetching detail pages) can be slow for sites with many events. You can disable it to improve performance.
+
+**When to Use:**
+- Level 1 calendar page already has sufficient data
+- Detail pages add minimal value
+- Performance is critical (many events)
+- Level 2 scraping causes timeouts
+
+**Implementation in `scraper.py`:**
+```python
+"""Scraper for events (Level 2 disabled for performance)."""
+
+from rules.base import BaseScraper
+
+class EventsScraper(BaseScraper):
+    """Scraper for event pages.
+    
+    Level 2 scraping is disabled to avoid timeout.
+    Calendar page data is sufficient.
+    """
+
+    # Set class-level flag to disable Level 2
+    DISABLE_LEVEL_2 = True
+
+    @classmethod
+    def can_handle(cls, url: str) -> bool:
+        return "example.com" in url
+
+    def fetch(self) -> str:
+        """Fetch content from calendar page."""
+        return self._fetch_with_requests()
+```
+
+**How It Works:**
+- Set `DISABLE_LEVEL_2 = True` as class attribute
+- `rules/__init__.py` checks this flag before attempting Level 2
+- Skips detail page fetching entirely
+- Saves time (1-3 seconds per event avoided)
+
+**When NOT to Disable:**
+- Detail pages have rich descriptions needed
+- Location data only available on detail pages
+- End times only on detail pages
+- Event URLs needed for linking
+
+**Example Reference:**
+- `rules/cities/dormagen/feste_veranstaltungen/scraper.py` - DISABLE_LEVEL_2 flag usage
+- `rules/cities/monheim/kulturwerke/scraper.py` - DISABLE_LEVEL_2 flag usage
+
 ---
 
 ## Debugging Tips
