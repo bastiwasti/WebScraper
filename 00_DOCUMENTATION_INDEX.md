@@ -14,6 +14,7 @@ All documentation files follow the format: `{number}_{name}.md`
 | 10_ | 10 | Agent guide | 10_agent_guide.md |
 | 20_ | 20 | Setup guide | 20_setup_guide.md |
 | 30_ | 30 | Architecture | 30_architecture.md |
+| 32_ | 32 | Cron setup | 32_cron_setup.md |
 | 50_ | 50 | Fixes log | 50_FIXES.md |
 | 99_ | 99 | Error log | 99_agent_errors.md |
 
@@ -63,6 +64,20 @@ All documentation files follow the format: `{number}_{name}.md`
 - Complete working examples
 
 **IMPORTANT:** All scrapers MUST implement navigation to load 14 days of events from webpage.
+
+### 32_cron_setup.md
+**Purpose:** Cron job configuration for daily automatic event scraping
+**For:** System administrators setting up automated scraping
+
+**Contents:**
+- Crontab entries for daily scraping (3:00 AM CET)
+- Log rotation configuration (30-day retention)
+- System timezone settings
+- Log file locations and format
+- Troubleshooting commands
+- Modification examples (change run time, log retention, cities)
+
+**Note:** This feature is production-ready and active.
 
 ### 30_architecture.md
 **Purpose:** Deep system reference for internals
