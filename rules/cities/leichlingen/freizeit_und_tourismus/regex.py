@@ -57,6 +57,35 @@ class FreizeitUndTourismusRegex(BaseRule):
         soup = BeautifulSoup(html_content, 'html.parser')
         events = []
         
+        # First pass: Extract all descriptions from hidden divs
+        # Pattern: "mehr Infos" button has id="a{event_id}", hidden div has id="termin{event_id}"
+        description_map = {}
+        
+        # Find all divs with id attribute, then filter for ones starting with "termin"
+        all_divs = soup.find_all('div', id=True)
+        hidden_divs = [d for d in all_divs if d.get('id', '').startswith('termin')]
+        
+        for hidden_div in hidden_divs:
+            div_id = hidden_div.get('id', '')
+            if not div_id:
+                continue
+            event_id = div_id.replace('termin', '')
+            
+            inhalt_div = hidden_div.find('div', class_='klive-langfassung-inhalt')
+            if inhalt_div:
+                text_parts = []
+                for bText in inhalt_div.find_all('div', class_='bText'):
+                    text = bText.get_text(separator=' ', strip=True)
+                    if text:
+                        text_parts.append(text)
+                
+                description = ' '.join(text_parts)
+                if len(description) > 20:
+                    description_map[event_id] = description
+        
+        print(f"[FreizeitUndTourismus] Extracted {len(description_map)} descriptions from hidden info sections")
+        
+        # Second pass: Parse event cards with mapped descriptions
         for card in soup.find_all('div', class_='klive-terminbox'):
             try:
                 title_elem = card.find('span', class_='klive-titel-artist')
@@ -66,6 +95,16 @@ class FreizeitUndTourismusRegex(BaseRule):
                 time_elem = card.find('div', class_='klive-zeit')
                 rubrik_elem = card.find('span', class_='klive-rubrik')
                 location_elem = card.find('span', class_='klive-location-notdefault')
+                mehr_infos_link = card.find('a', class_='klive-mehr-infos')
+                
+                # Extract event ID from "mehr Infos" button for description mapping
+                event_id = ""
+                if mehr_infos_link:
+                    link_id = mehr_infos_link.get('id', '')
+                    if link_id:
+                        link_id_str = str(link_id) if not isinstance(link_id, str) else link_id
+                        if link_id_str.startswith('a'):
+                            event_id = link_id_str[1:]
                 
                 title_parts = []
                 if pretitle_elem:
@@ -79,6 +118,11 @@ class FreizeitUndTourismusRegex(BaseRule):
                 
                 date_str = ""
                 time_str = ""
+                description = ""
+                
+                # Map description from hidden info section
+                if event_id in description_map:
+                    description = description_map[event_id]
                 
                 if date_elem:
                     date_parts = []
@@ -115,7 +159,9 @@ class FreizeitUndTourismusRegex(BaseRule):
                 if rubrik_elem:
                     category = rubrik_elem.get_text(strip=True)
                 
-                description = title
+                # Use mapped description if available, otherwise use title
+                if not description:
+                    description = title
                 
                 if not title:
                     continue

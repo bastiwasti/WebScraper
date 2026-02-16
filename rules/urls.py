@@ -32,6 +32,9 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     "hitdorf": {
         "kalender": "https://leben-in-hitdorf.de/kalender/",
     },
+    "leichlingen": {
+        "freizeit_und_tourismus": "https://www.leichlingen.de/freizeit-und-tourismus/veranstaltungen",
+    },
 
 }
 

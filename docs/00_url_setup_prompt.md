@@ -141,6 +141,90 @@ ls -lt logs/ | head -2
 
 Verify: events extracted count > 0, all required fields present
 
+## Final Verification Workflow
+
+After implementing and testing the scraper, follow this final verification process:
+
+### Step 1: Run with Database Write
+
+Test the scraper with database writing enabled:
+```bash
+python3 main.py --url {target_url} --verbose
+```
+
+**What this does:**
+- Fetches events from URL using your scraper
+- Writes events to database (events table)
+- Creates a run record in the database
+
+**Verify:**
+- Check log file for success: `✓ https://example.com - X events (Y.YYs)`
+- Confirm events were written to database
+- No critical errors in log file
+
+### Step 2: Verify Database Records
+
+Query the database to verify events were saved correctly:
+```bash
+# Check most recent runs
+python3 main.py --list-runs
+
+# Or query database directly (if you have access)
+# SELECT * FROM events WHERE source LIKE '%{target_url}%';
+```
+
+**Verify:**
+- Event count matches scraper output
+- Required fields are populated (name, date, location, description, time)
+- Categories are inferred correctly
+- No duplicate events
+
+### Step 3: Final Verification Test
+
+Run the scraper again to verify consistency:
+```bash
+python3 main.py --url {target_url} --verbose
+```
+
+**Verify:**
+- Event count remains consistent
+- No new errors appear
+- Same events retrieved (no drift in website structure)
+
+### Step 4: Debug if Unsuccessful
+
+If any step fails:
+
+1. **Check log file** for specific errors:
+   ```bash
+   cat logs/scrape_2026-02-16_*.log | grep -i error
+   ```
+
+2. **Common issues and fixes:**
+   - Database connection errors: Check config.py database settings
+   - No events extracted: Check regex patterns in regex.py
+   - Duplicate events: Verify pagination (page 1 ≠ page 2)
+   - Missing descriptions: Check Level 2 is enabled (DISABLE_LEVEL_2 = False)
+   - Timeout errors: Increase timeout in detail page requests
+
+3. **Debug steps:**
+   - Print fetched content: Add `print(content[:5000])` after fetch
+   - Test regex patterns manually: Copy HTML to regex tester
+   - Verify selectors: Check if HTML structure changed
+   - Check event URLs: Ensure detail pages exist
+
+4. **Retest after fixes:**
+   ```bash
+   python3 main.py --url {target_url} --verbose
+   ```
+
+**Success criteria for final verification:**
+- ✅ Events saved to database
+- ✅ All required fields populated
+- ✅ No duplicate events
+- ✅ Consistent results on re-run
+- ✅ No critical errors in logs
+
 ## Self-Correction
 
 Maximum 3 attempts. For each:
