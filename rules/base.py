@@ -196,20 +196,33 @@ class BaseRule(ABC):
         return None
 
     def _infer_category(self, description: str, name: str = "") -> str:
-        """Infer category from event description and name."""
-        text = (description + " " + name).lower()
+        """Infer category from event description and name.
 
-        category_keywords = {
-            "family": ["familie", "kinder", "jugend", "kind", "baby", "schule", "eltern", "familien"],
-            "adult": ["erwachsen", "adult", "senior", "abend", "nacht", "bar", "club", "party"],
-            "sport": ["sport", "fitness", "laufen", "schwimmen", "rad", "fußball", "tennis", "yoga"],
-        }
+        Uses centralized categories module for consistent category inference
+        across all scrapers.
 
-        for category, keywords in category_keywords.items():
-            if any(kw in text for kw in keywords):
-                return category
+        Args:
+            description: Event description text.
+            name: Event name/title (optional).
 
-        return "other"
+        Returns:
+            Category ID (e.g., "family", "sport", "culture").
+        """
+        try:
+            from rules.categories import infer_category
+            return infer_category(description, name)
+        except ImportError:
+            # Fallback to basic inference if categories module not available
+            text = (description + " " + name).lower()
+            category_keywords = {
+                "family": ["familie", "kinder", "jugend", "kind", "baby", "schule", "eltern", "familien"],
+                "adult": ["erwachsen", "adult", "senior", "abend", "nacht", "bar", "club", "party"],
+                "sport": ["sport", "fitness", "laufen", "schwimmen", "rad", "fußball", "tennis", "yoga"],
+            }
+            for category, keywords in category_keywords.items():
+                if any(kw in text for kw in keywords):
+                    return category
+            return "other"
 
     def parse_with_llm_fallback(self, raw_content: str) -> List[Event]:
         """Fallback to LLM if regex extraction fails.

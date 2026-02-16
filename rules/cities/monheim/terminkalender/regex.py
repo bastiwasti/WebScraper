@@ -112,11 +112,20 @@ class TerminkalenderRegex(BaseRule):
             if match:
                 time = match.group(1) + ' Uhr'
                 name = match.group(2).strip()
-                
+
                 # Use H1 date as default
                 date = current_h1_date or ""
-                
+
                 if name:
+                    from rules import categories, utils
+                    # Infer and normalize category
+                    category = categories.infer_category("", name)
+                    category = categories.normalize_category(category)
+                    # Normalize time format
+                    time = utils.normalize_time(time)
+                    # Normalize date format
+                    date = utils.normalize_date(date)
+
                     events.append(Event(
                         name=name,
                         description="",
@@ -124,24 +133,11 @@ class TerminkalenderRegex(BaseRule):
                         date=date,
                         time=time,
                         source=self.url,
-                        category="other",
+                        category=category,
                     ))
         
         print(f"[Terminkalender] HTML parsing returned {len(events)} events")
         return events
-
-    def _infer_category(self, description: str, name: str = "") -> str:
-        """Infer category from description or name."""
-        text = (description + " " + name).lower()
-        if any(x in text for x in ['konzert', 'musik', 'theater', 'opera']):
-            return 'music'
-        if any(x in text for x in ['sport', 'fußball', 'turnier', 'lauf']):
-            return 'sports'
-        if any(x in text for x in ['ausstellung', 'kunst', 'museum']):
-            return 'culture'
-        if any(x in text for x in ['markt', 'verkauf']):
-            return 'market'
-        return 'other'
 
     def get_event_urls_from_html(self, raw_html: str) -> list[str]:
         """Extract event detail URLs from calendar page raw HTML.

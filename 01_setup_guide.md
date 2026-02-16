@@ -707,6 +707,10 @@ def fetch(self) -> str:
 
 #### 3. Pagination Pattern
 If the page uses pagination:
+
+**CRITICAL: Always verify pagination actually works before implementing!**
+Many sites have pagination URLs that return identical content to page 1.
+
 ```python
 def fetch(self) -> str:
     with sync_playwright() as p:
@@ -714,11 +718,36 @@ def fetch(self) -> str:
         page = browser.new_page()
         page.goto(self.url, wait_until="networkidle")
         
+        # CRITICAL: Verify pagination actually works
+        print("[DEBUG] Verifying pagination...")
+        page1_html = page.content()
+        
+        # Try to find and click next button
+        next_button = page.locator("a[rel='next'], .pagination-next")
+        if next_button.count() > 0:
+            next_button.click()
+            page.wait_for_timeout(1000)
+            page2_html = page.content()
+            
+            # Compare event counts
+            page1_count = page1_html.count('<article')
+            page2_count = page2_html.count('<article')
+            
+            if page1_count == page2_count:
+                print("WARNING: Page 1 and 2 have same event count - no real pagination")
+                print("Setting MAX_PAGES=1 and using page 1 only")
+                max_pages = 1
+            else:
+                print(f"Pagination confirmed: {page1_count} events on page 1, {page2_count} on page 2")
+                max_pages = 10  # or your desired page limit
+        else:
+            print("No next button found - all events on page 1")
+            max_pages = 1
+        
         from datetime import datetime, timedelta
         cutoff_date = datetime.now() + timedelta(days=14)
         
         all_content = []
-        max_pages = 10
         
         for page_num in range(max_pages):
             # Get current page content
@@ -730,7 +759,6 @@ def fetch(self) -> str:
                 break
             
             # Try to go to next page
-            next_button = page.locator("a[rel='next'], .pagination-next")
             if next_button.count() == 0:
                 break
             
@@ -1777,6 +1805,16 @@ Maps to:
 5. Add debugging prints to track navigation steps
 6. Check for rate limiting or anti-bot measures
 
+### Issue: Duplicate events across pages
+**Symptoms**: Same events appearing on page 1, page 2, page 3...
+**Cause**: Site has pagination URLs but returns all events on every page
+**Solution**:
+1. Fetch page 1 and page 2 HTML
+2. Compare event counts or first few event titles
+3. If identical: Set `MAX_PAGES = 1` in scraper
+4. This is common with WordPress calendar themes that show full archive on every pagination URL
+5. See `docs/00_url_setup_prompt.md` section "Pagination Verification (CRITICAL)" for verification code
+
 ### Issue: No events extracted
 **Solution**:
 1. Print the fetched content: `print(content[:5000])`
@@ -1880,6 +1918,34 @@ python3 main.py --cities monheim --verbose
 # List runs
 python3 main.py --list-runs
 ```
+
+**IMPORTANT: Always check log files for actual progress**
+
+The scraper writes all progress to log files. Bash stdout only shows the initial "Logging to:" message.
+
+```bash
+# Monitor log file in real-time while script runs
+tail -f logs/scrape_*.log
+
+# View completed log
+cat logs/scrape_2026-02-16_XX-XX-XX.log
+
+# Find most recent log file
+ls -lt logs/ | head -2
+```
+
+**Why checking logs is critical:**
+- Scripts redirect output to log files after initialization
+- Bash timeouts don't mean script failure - script continues running
+- Log files contain: event counts, errors, Level 2 progress, final status
+- Example successful log output: `✓ https://example.com - 77 events (167.24s)`
+- Example error in log: `Error fetching detail page: Timeout`
+
+**Common mistake**: Assuming script failed when bash times out
+- Bash timeout only affects the tool, not the Python script
+- Script continues running in background
+- All progress is logged to the log file
+- Always check logs to determine actual status
 
 ---
 
@@ -2125,11 +2191,40 @@ python3 main.py --agent scraper --cities example
 python3 main.py --list-runs
 ```
 
+**ALWAYS check log files to monitor progress and results**
+
+The scraper writes all progress to log files. Bash stdout only shows initialization.
+
+```bash
+# View log file while script runs
+tail -f logs/scrape_*.log
+
+# View completed log file
+cat logs/scrape_2026-02-16_XX-XX-XX.log
+
+# Find most recent log file
+ls -lt logs/ | head -2
+```
+
+**What log files contain:**
+- Progress messages: "Fetching page 1/3", "Parsing page 2"
+- Level 2 progress: "Fetching detail pages for 77 events..."
+- Success messages: "✓ https://example.com - 77 events (167.24s)"
+- Error messages: "Error fetching detail page: Timeout"
+- Event counts and validation status
+
+**Why checking logs is essential:**
+- Bash timeouts ≠ script failures - scripts continue running
+- All actual output goes to log files, not bash stdout
+- Log files show true progress, errors, and success/failure status
+- You cannot assess scraper functionality from bash output alone
+
 Verify your scraper:
 1. Loads 14 days of events (not just today or current month)
 2. Extracts all required fields (name, date)
 3. Handles "Load More" buttons, pagination, or date filters
 4. Returns events in correct format (DD.MM.YYYY)
+5. **Check log file** for actual results (event count, errors, runtime)
 
 ## Notes for Future Development
 

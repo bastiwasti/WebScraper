@@ -60,13 +60,15 @@ class FesteVeranstaltungenRegex(BaseRule):
 
     def _parse_event_card(self, card) -> Event | None:
         """Parse a single event card and extract data."""
+        from rules import categories, utils
+
         # Event title
         title_elem = card.select_one('h5.dfx-titel-liste-dreizeilig a')
         if not title_elem:
             return None
-        
+
         title = title_elem.get_text(strip=True)
-        
+
         # Extract detail URL
         detail_link = title_elem.get('href', '')
         if detail_link:
@@ -77,33 +79,36 @@ class FesteVeranstaltungenRegex(BaseRule):
                 pass
             else:
                 detail_link = f"https://www.datefix.de/{detail_link}"
-        
+
         # Start date (ISO format from meta tag)
         start_date_elem = card.select_one('meta[itemprop="startDate"]')
         start_date = start_date_elem.get('content', '') if start_date_elem else ''
-        
+
+        # Normalize date
+        start_date = utils.normalize_date(start_date)
+
         # Time from dfx-zeit-liste-dreizeilig
         time_elem = card.select_one('span.dfx-zeit-liste-dreizeilig')
         time = time_elem.get_text(strip=True) if time_elem else ''
-        
+
         # Location name
         location_elem = card.select_one('span.dfx-lokal-liste-dreizeilig')
         location = location_elem.get_text(strip=True) if location_elem else ''
-        
+
         # Address components
         postal_code_elem = card.select_one('span[itemprop="postalCode"]')
         postal_code = postal_code_elem.get_text(strip=True) if postal_code_elem else ''
-        
+
         city_elem = card.select_one('span[itemprop="addressLocality"]')
         city = city_elem.get_text(strip=True) if city_elem else ''
-        
+
         street_elem = card.select_one('span[itemprop="streetAddress"]')
         street = street_elem.get_text(strip=True) if street_elem else ''
-        
+
         # Build full address
         address_parts = [street, f"{postal_code} {city}".strip()]
         address = ', '.join([p for p in address_parts if p])
-        
+
         # Combine location and address
         full_location = location
         if address:
@@ -111,13 +116,14 @@ class FesteVeranstaltungenRegex(BaseRule):
                 full_location += f", {address}"
             else:
                 full_location = address
-        
-        # Infer category
-        category = self._infer_category(title, full_location)
-        
+
+        # Infer category using centralized system
+        category = categories.infer_category(title, full_location)
+        category = categories.normalize_category(category)
+
         # Clean time format (e.g., "11:00 Uhr bis 17:00 Uhr" -> "11:00 - 17:00")
-        time = self._clean_time(time)
-        
+        time = utils.normalize_time(time)
+
         return Event(
             name=title,
             description="",  # Will be filled by Level 2
@@ -140,50 +146,6 @@ class FesteVeranstaltungenRegex(BaseRule):
         time_str = time_str.strip()
         
         return time_str
-
-    def _infer_category(self, description: str, name: str = "") -> str:
-        """Infer event category from description and name."""
-        text = f"{description} {name}".lower()
-        
-        # Common category keywords
-        category_map = {
-            'ausstellung': 'culture',
-            'konzert': 'music',
-            'theater': 'culture',
-            'film': 'culture',
-            'kino': 'culture',
-            'sport': 'sport',
-            'fest': 'festival',
-            'markt': 'market',
-            'markttag': 'market',
-            'messe': 'market',
-            'kinder': 'family',
-            'kind': 'family',
-            'familie': 'family',
-            'jugend': 'family',
-            'jazz': 'music',
-            'musik': 'music',
-            'orchester': 'music',
-            'chor': 'music',
-            'lesung': 'culture',
-            'buch': 'culture',
-            'vortrag': 'education',
-            'workshop': 'education',
-            'kurs': 'education',
-            'führung': 'culture',
-            'tour': 'culture',
-            'wandern': 'sport',
-            'laufen': 'sport',
-            'radfahren': 'sport',
-            'karneval': 'festival',
-            'fastnacht': 'festival',
-        }
-        
-        for keyword, category in category_map.items():
-            if keyword in text:
-                return category
-        
-        return 'other'
 
     def parse_detail_page(self, detail_html: str) -> dict | None:
         """Parse detail page HTML to extract enhanced data.

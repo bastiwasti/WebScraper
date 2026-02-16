@@ -29,6 +29,9 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     "dormagen": {
         "feste_veranstaltungen": "https://www.dormagen.de/tourismus-freizeit/feste-veranstaltungen",
     },
+    "hitdorf": {
+        "kalender": "https://leben-in-hitdorf.de/kalender/",
+    },
 
 }
 

@@ -199,6 +199,13 @@ class SubfolderNameScraper(BaseScraper):
         - Set date filters to include 14 days from today
         - Click "Next Month" or similar navigation to access future dates
         
+        CRITICAL: Before implementing pagination, verify it actually works:
+        - Fetch page 1 and page 2 content
+        - Compare event counts or titles
+        - If identical → Set MAX_PAGES=1 (all events on page 1)
+        - If different → Implement pagination with appropriate MAX_PAGES
+        - See `docs/00_url_setup_prompt.md` for detailed verification steps
+        
         Returns:
             Cleaned text content from the page with all 14-day events loaded.
         """

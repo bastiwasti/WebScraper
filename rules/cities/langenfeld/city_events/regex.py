@@ -1,6 +1,7 @@
 """HTML-based parser for Langenfeld city events pages."""
 from typing import List, Optional
 from rules.base import BaseRule, Event
+from rules import categories, utils
 import requests
 
 
@@ -74,7 +75,47 @@ class CityEventsRegex(BaseRule):
                 
                 if not title:
                     continue
-                
+
+                # Infer category from card class attributes
+                # Map specific keyword IDs to standard categories
+                class_list = card.get('class', [])
+                text = ' '.join(class_list).lower()
+
+                category_from_class = None
+                if "keyword_580" in text or "sports" in text:
+                    category_from_class = "sport"
+                elif any(kw in text for kw in ["keyword_582", "museum"]):
+                    category_from_class = "culture"
+                elif "keyword_585" in text:
+                    category_from_class = "culture"
+                elif "keyword_587" in text or "vhs" in text:
+                    category_from_class = "education"
+                elif "keyword_920" in text or "seniors" in text:
+                    category_from_class = "adult"
+                elif "keyword_1033" in text or "women" in text:
+                    category_from_class = "adult"
+                elif "keyword_5585" in text or "family" in text:
+                    category_from_class = "family"
+                elif "keyword_5587" in text or "school" in text:
+                    category_from_class = "education"
+                elif "keyword_3081" in text or "library" in text:
+                    category_from_class = "education"
+                elif "keyword_3574" in text or "schauplatz" in text:
+                    category_from_class = "culture"
+                elif "keyword_4508" in text or "market" in text:
+                    category_from_class = "market"
+
+                # Use inferred class category, or fall back to text-based inference
+                if category_from_class:
+                    category = category_from_class
+                else:
+                    category = categories.infer_category(teaser, title)
+
+                # Normalize category
+                category = categories.normalize_category(category)
+                # Normalize date
+                date_str = utils.normalize_date(date_str)
+
                 event = Event(
                     name=title,
                     description=teaser,
@@ -82,7 +123,7 @@ class CityEventsRegex(BaseRule):
                     date=date_str,
                     time="",
                     source=self.url,
-                    category=self._infer_category_from_card(card),
+                    category=category,
                 )
                 
                 events.append(event)
@@ -93,31 +134,6 @@ class CityEventsRegex(BaseRule):
         
         print(f"[CityEvents] HTML parsing returned {len(events)} events")
         return events
-
-    def _infer_category_from_card(self, card) -> str:
-        """Infer category from event card keyword classes."""
-        class_list = card.get('class', [])
-        text = ' '.join(class_list).lower()
-        
-        category_keywords = {
-            "sports": ["keyword_580"],
-            "culture": ["keyword_582"],
-            "museum": ["keyword_585"],
-            "vhs": ["keyword_587"],
-            "seniors": ["keyword_920"],
-            "women": ["keyword_1033"],
-            "family": ["keyword_5585"],
-            "school": ["keyword_5587"],
-            "library": ["keyword_3081"],
-            "schauplatz": ["keyword_3574"],
-            "market": ["keyword_4508"],
-        }
-        
-        for category, keywords in category_keywords.items():
-            if any(kw in text for kw in keywords):
-                return category
-        
-        return "other"
 
     def get_event_urls_from_html(self, raw_html: str) -> dict[str, str]:
         """Extract event detail URLs from calendar page raw HTML.
