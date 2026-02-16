@@ -11,13 +11,14 @@ User provides:
 ## Workflow
 
 1. Read `docs/00_url_setup_prompt.md` for complete setup guide
-2. Read `14_categories.md` for category system reference
-3. Analyze URL to detect which of 7 proven patterns to use
-4. Implement scraper using matching template from `rules/cities/` directory
-5. Register URL in `rules/urls.py`
-6. Test with `python3 main.py --url {url} --no-db --verbose`
-7. Fix issues with up to 3 self-correction attempts
-8. Create summary file: `2x_{city}_autonomous_{timestamp}.md` (ISO 8601 format)
+2. Read `docs/14_categories.md` for category system reference
+3. **Analyze URL to detect which of 7 proven patterns to use**
+4. **Investigate HTML/API structure** (see Phase 2 below - MANDATORY)
+5. Implement scraper using matching template from `rules/cities/` directory
+6. Register URL in `rules/urls.py`
+7. Test with `python3 main.py --url {url} --no-db --verbose`
+8. Fix issues with up to 3 self-correction attempts
+9. Create summary file: `2x_{city}_autonomous_{timestamp}.md` (ISO 8601 format)
 
 ## 7 Proven Patterns
 
@@ -75,6 +76,202 @@ The Hitdorf kalender site appeared to have pagination:
 **Result**: Agent incorrectly set `MAX_PAGES = 10` and reported 770 events (77 × 10 duplicate pages).
 
 **Fix**: Verification revealed identical content → Set `MAX_PAGES = 1` → Correct: 77 events.
+
+## Phase 2: Investigation (MANDATORY)
+
+**Before implementing ANY scraper code, you MUST thoroughly investigate the HTML/API structure.**
+
+### Why Investigation is Mandatory
+
+Many websites have hidden data sources that are not immediately visible:
+- "Mehr Infos" / "Show More" buttons that expand content
+- Hidden divs with `display:none` containing full descriptions
+- JavaScript expansion mechanisms not visible in initial HTML
+- API parameters that load additional data
+
+Skipping investigation leads to:
+- Incomplete event data (missing descriptions, locations, etc.)
+- Multiple re-implementation cycles
+- Wasted time debugging avoidable issues
+
+### Investigation Steps
+
+#### Step 1: Fetch and Save Raw Content
+
+```bash
+# Fetch the URL and save to file for analysis
+curl -o /tmp/{city}_raw.html "{target_url}"
+
+# Or use Python to fetch
+python3 -c "import requests; r = requests.get('{target_url}'); open('/tmp/{city}_raw.html', 'w').write(r.text)"
+```
+
+#### Step 2: Identify ALL Data Sources
+
+Search the saved HTML for:
+
+**a) Event Card Structure:**
+```bash
+grep -A 20 "event\|termin\|karte" /tmp/{city}_raw.html | head -50
+```
+- What HTML elements contain event data?
+- Are there nested structures (cards within containers)?
+
+**b) Hidden/Expansion Sections:**
+```bash
+grep -iE "mehr.*info|show.*more|expand|aufklapp" /tmp/{city}_raw.html | head -20
+```
+- Look for: "mehr Infos", "Show More", "Load More", "aufklappen"
+- Are there hidden divs (`display:none`, `hidden`)?
+
+**c) API Parameters:**
+```bash
+grep -oE 'what=|page=|limit=|count=' /tmp/{city}_raw.html | sort -u
+```
+- What parameters control data loading?
+- Are there pagination parameters?
+
+**d) JavaScript Loading:**
+```bash
+grep -iE "javascript|ajax|fetch|load" /tmp/{city}_raw.html | head -20
+```
+- Does the page load data via JavaScript?
+- Are there API endpoints in the JavaScript?
+
+#### Step 3: Document Data Relationships
+
+Find how to map event cards to additional data:
+
+**Common Mapping Patterns:**
+
+1. **ID-Based Mapping** (e.g., Leichlingen):
+   ```html
+   <!-- In event card -->
+   <a id="a411487" class="mehr-infos">+ mehr Infos</a>
+   
+   <!-- Hidden description -->
+   <div id="termin411487" style="display:none">
+       <div class="description">Full description here</div>
+   </div>
+   ```
+   Pattern: Remove prefix from ID → Match to hidden div
+   Example: `a411487` → `termin411487` (remove 'a', match event ID)
+
+2. **Link-Based Mapping**:
+   ```html
+   <a href="event-detail-123.html">Event Title</a>
+   <!-- Detail page at: https://site.com/event-detail-123.html -->
+   ```
+   Pattern: Extract URL from card → Fetch detail page
+
+3. **Data Attributes**:
+   ```html
+   <div data-event-id="123" data-description="...">
+       <!-- Description stored in data attribute -->
+   </div>
+   ```
+   Pattern: Read data attributes directly
+
+4. **Inline Expansion** (No hidden sections):
+   ```html
+   <div class="event-card">
+       <p class="short-desc">Brief description</p>
+       <p class="full-desc" style="display:none">Full description</p>
+   </div>
+   ```
+   Pattern: Toggle display or read hidden content
+
+#### Step 4: Test Extraction on Sample Data
+
+Extract first 3 events and verify you can parse:
+- Name
+- Date
+- Time
+- Location
+- Description (from all identified sources)
+- Category
+
+### Investigation Deliverable
+
+Create analysis file: `investigation_{city}.md` containing:
+
+```markdown
+# {City Name} - Investigation Report
+
+## HTML Structure
+- [ ] Main event card structure documented
+- [ ] All data sources identified
+
+## Hidden Data Sources
+- [ ] "Mehr Infos" / "Show More" buttons found: YES/NO
+- [ ] Hidden divs with display:none: YES/NO
+- [ ] ID mapping patterns identified: Describe pattern
+
+## Mapping Pattern
+- [ ] Mapping type: [ID-based / Link-based / Data attributes / Inline]
+- [ ] Pattern documented: [Explain the pattern]
+
+## API Parameters
+- [ ] API endpoint identified: [URL]
+- [ ] Parameters tested: [List tested parameters]
+- [ ] Results: [What each parameter returns]
+
+## Pagination
+- [ ] Page 1 event count: [Number]
+- [ ] Page 2 event count: [Number]
+- [ ] Is pagination real: YES/NO
+
+## Sample Events
+### Event 1
+- Name: [Event name]
+- Date: [Date]
+- Time: [Time]
+- Location: [Location]
+- Description source: [Card / Hidden section / Detail page]
+
+### Event 2
+- Name: [Event name]
+- Date: [Date]
+- Time: [Time]
+- Location: [Location]
+- Description source: [Card / Hidden section / Detail page]
+
+### Event 3
+- Name: [Event name]
+- Date: [Date]
+- Time: [Time]
+- Location: [Location]
+- Description source: [Card / Hidden section / Detail page]
+```
+
+**This analysis file MUST be completed BEFORE writing any scraper code.**
+
+### Common Mistakes to Avoid
+
+❌ **Not searching for hidden content**: Assuming all data is visible in event cards
+- **Fix**: Always search for "mehr Infos", "Show More", `display:none` elements
+
+❌ **Not verifying pagination**: Assuming `/page/2/` works without checking
+- **Fix**: Always fetch page 1 and page 2, compare content
+
+❌ **Not checking ID patterns**: Trying to implement without understanding mapping
+- **Fix**: Document how card IDs map to descriptions before coding
+
+❌ **Skipping API parameters**: Not testing available parameters
+- **Fix**: Test `what=All`, `limit=100`, etc. to understand behavior
+
+## Investigation Checklist (Complete BEFORE Implementation)
+
+- [ ] Main event card structure documented
+- [ ] All data sources identified (cards + hidden sections + API parameters)
+- [ ] Hidden/expansion sections found ("mehr Infos", "Show More", etc.)
+- [ ] ID mapping patterns identified (how to link card → description)
+- [ ] API parameters tested (what=, page=, limit=, etc.)
+- [ ] Pagination verified (page 1 ≠ page 2)
+- [ ] Sample extraction tested on 3+ events
+- [ ] Investigation file created with findings (`investigation_{city}.md`)
+
+**Only proceed to implementation after all items are checked.**
 
 ## Implementation Rules
 
@@ -204,7 +401,14 @@ If any step fails:
    - Database connection errors: Check config.py database settings
    - No events extracted: Check regex patterns in regex.py
    - Duplicate events: Verify pagination (page 1 ≠ page 2)
-   - Missing descriptions: Check Level 2 is enabled (DISABLE_LEVEL_2 = False)
+   - **Missing descriptions / incomplete data:**
+     **Symptoms**: Events only have titles, no descriptions or locations
+     **Cause**: Did not investigate HTML structure for hidden data sources ("mehr Infos", "Show More", hidden divs)
+     **Fix**: 
+       1. Return to Phase 2: Investigation
+       2. Search for hidden data sources: `grep -iE "mehr.*info|show.*more|expand" /tmp/{city}_raw.html`
+       3. Find ID mapping patterns: Look for button IDs matching hidden div IDs (e.g., `a{event_id}` → `termin{event_id}`)
+       4. Re-extract with updated logic to capture hidden descriptions
    - Timeout errors: Increase timeout in detail page requests
 
 3. **Debug steps:**
