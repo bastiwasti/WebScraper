@@ -133,6 +133,7 @@ class FesteVeranstaltungenRegex(BaseRule):
             source=detail_link if detail_link else self.url,
             category=category,
             event_url=detail_link,
+            origin=self.get_origin(),
         )
 
     def _clean_time(self, time_str: str) -> str:

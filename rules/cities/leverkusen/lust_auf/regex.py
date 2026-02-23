@@ -7,11 +7,13 @@ Total: 588 events across 12 pages (50 events per page).
 """
 
 import re
+import json
 import requests
 from datetime import datetime, timedelta
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from rules.base import BaseRule, Event
+from rules import categories
 
 
 class LustAufRegex(BaseRule):
@@ -79,8 +81,10 @@ class LustAufRegex(BaseRule):
                     location = venue.get('venue', '') if venue else venue.get('address', '')
                     
                     # Extract categories
-                    categories = event_data.get('categories', [])
-                    category = ', '.join([cat.get('name', '') for cat in categories[:3]])
+                    categories_list = event_data.get('categories', [])
+                    category_raw = ', '.join([cat.get('name', '') for cat in categories_list[:3]])
+                    category = categories.infer_category(category_raw, title)
+                    category = categories.normalize_category(category)
                     
                     # Extract URL
                     event_url = event_data.get('url', '')

@@ -134,6 +134,7 @@ class KalenderRegex(BaseRule):
             source=detail_link if detail_link else self.url,
             category=category,
             event_url=detail_link,
+            origin=self.get_origin(),
         )
 
     def parse_detail_page(self, detail_html: str) -> dict | None:

@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from rules.base import BaseScraper, Event
+from rules import utils
 
 
 class LustAufScraper(BaseScraper):
@@ -169,12 +170,11 @@ class LustAufScraper(BaseScraper):
             # Source URL
             source_url = api_event.get('url', '')
             
-            # Extract city from venue
-            city = ""
-            if venue:
-                city = venue.get('city', '').strip()
-            if not city:
-                city = "Leverkusen"
+            # Extract and normalize city from venue
+            city = utils.normalize_city(
+                raw_city=venue.get('city', '') if venue else '',
+                default_city='Leverkusen'
+            )
             
             # Build Event object
             event = Event(
@@ -189,6 +189,7 @@ class LustAufScraper(BaseScraper):
                 city=city,
                 event_url=source_url,
                 raw_data=api_event,
+                origin=self.get_origin(),
             )
             
             return event

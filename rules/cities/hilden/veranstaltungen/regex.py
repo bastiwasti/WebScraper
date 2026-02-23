@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from typing import List
 from rules.base import BaseRule, Event
+from rules import categories
 
 
 class HildenRegex(BaseRule):
@@ -70,7 +71,9 @@ class HildenRegex(BaseRule):
                 
                 # Extract category
                 category_data = event_data.get('category', {})
-                category = category_data.get('name', '')
+                category_raw = category_data.get('name', '')
+                category = categories.infer_category(category_raw, title)
+                category = categories.normalize_category(category)
                 
                 # Extract tags for additional info
                 tags = event_data.get('tags', [])
@@ -95,6 +98,7 @@ class HildenRegex(BaseRule):
                     time=time_str,
                     source=source,
                     category=category,
+                    origin=self.get_origin(),
                 )
                 events.append(event)
                 

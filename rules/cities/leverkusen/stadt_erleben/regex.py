@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from typing import List, Optional
 from rules.base import BaseRule, Event
+from rules import categories
 import requests
 
 
@@ -112,7 +113,9 @@ class StadtErlebenRegex(BaseRule):
                 
                 # Extract category
                 cat_elem = card.select_one('span.SP-Kicker__text')
-                category = cat_elem.get_text(strip=True) if cat_elem else "other"
+                category_raw = cat_elem.get_text(strip=True) if cat_elem else "other"
+                category = categories.infer_category(category_raw, title)
+                category = categories.normalize_category(category)
                 
                 # Extract description (from teaser)
                 desc_elem = card.select_one('div.SP-Paragraph.SP-Teaser__paragraph')
@@ -131,6 +134,7 @@ class StadtErlebenRegex(BaseRule):
                     source=self.url,
                     category=category,
                     event_url=detail_url or '',
+                    origin=self.get_origin(),
                 ))
             
             except Exception as e:

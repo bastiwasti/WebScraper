@@ -58,6 +58,7 @@ class TerminkalenderRegex(BaseRule):
             date="",  # Date will be filled from H1
             time=time,
             source=source,
+            origin=self.get_origin(),
             category=category,
         )
 
@@ -134,6 +135,7 @@ class TerminkalenderRegex(BaseRule):
                         time=time,
                         source=self.url,
                         category=category,
+                        origin=self.get_origin(),
                     ))
         
         print(f"[Terminkalender] HTML parsing returned {len(events)} events")

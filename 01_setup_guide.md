@@ -155,6 +155,9 @@ class Event:
     source: str         # Required: Source URL
     category: str       # Created by analyzer (not set by scraper)
     city: str = ""      # Optional: City name
+    event_url: str = "" # Optional: Event detail page URL
+    raw_data: dict | None = None  # Optional: Raw data from Level 2 scraping
+    origin: str = ""    # NEW: Data origin identifier (e.g., "leverkusen_lust_auf")
 ```
 
 ---

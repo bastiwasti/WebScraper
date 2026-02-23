@@ -241,6 +241,10 @@ class Event:
     time: str
     source: str
     category: str = "other"
+    city: str = ""
+    event_url: str = ""
+    raw_data: dict | None = None
+    origin: str = ""  # NEW: Data origin identifier (e.g., "leverkusen_lust_auf")
 ```
 
 ### Rule Entry
@@ -265,7 +269,8 @@ class RuleEntry:
     "category": str,
     "source": str,
     "created_at": str (ISO timestamp),
-    "run_id": int (foreign key)
+    "run_id": int (foreign key),
+    "origin": str,  # NEW: Data origin identifier (e.g., "leverkusen_lust_auf")
 }
 ```
 
@@ -348,6 +353,7 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 | `category` | TEXT | Event category |
 | `source` | TEXT | Source URL/site |
 | `created_at` | TEXT | ISO timestamp |
+| `origin` | TEXT | Data origin identifier (e.g., "leverkusen_lust_auf") |
 
 #### `raw_summaries` - Scraper output for debugging
 

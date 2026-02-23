@@ -1,7 +1,7 @@
-"""Utility functions for date and time normalization.
+"""Utility functions for date, time, and city normalization.
 
-This module provides standardization functions for handling various date and time
-formats encountered in different event sources.
+This module provides standardization functions for handling various date, time,
+and city formats encountered in different event sources.
 
 Usage:
     from rules import utils
@@ -13,6 +13,10 @@ Usage:
     # Normalize time to HH:MM
     time = utils.normalize_time("14:30 Uhr")
     # Returns: "14:30"
+
+    # Normalize city to lowercase
+    city = utils.normalize_city("Leverkusen", "Leverkusen")
+    # Returns: "leverkusen"
 """
 
 import re
@@ -245,3 +249,142 @@ def extract_start_time(time_range: str) -> Optional[str]:
         return match.group(1)
 
     return None
+
+
+def normalize_city(raw_city: str, default_city: str) -> str:
+    """Normalize city name to standard format (lowercase).
+    
+    Handles these variations:
+    - Case variations: "Leverkusen" → "leverkusen"
+    - Numeric prefixes: "51379 Leverkusen" → "leverkusen"
+    - Empty values: Returns default_city (lowercase)
+    
+    Args:
+        raw_city: Raw city name from API or other source.
+        default_city: Fallback city name (e.g., from folder hierarchy).
+    
+    Returns:
+        Normalized lowercase city name.
+    
+    Examples:
+        >>> normalize_city("Leverkusen", "Leverkusen")
+        'leverkusen'
+        >>> normalize_city("51379 Leverkusen", "Leverkusen")
+        'leverkusen'
+        >>> normalize_city("", "Leverkusen")
+        'leverkusen'
+        >>> normalize_city("leverkusen", "Leverkusen")
+        'leverkusen'
+    """
+    if not raw_city:
+        return default_city.lower()
+    
+    # Remove numeric prefixes (e.g., "51379 Leverkusen" → "Leverkusen")
+    city_cleaned = re.sub(r'^\d+\s+', '', raw_city.strip())
+    
+    # Return lowercase version
+    return city_cleaned.lower()
+
+
+# City name mappings for aggregator sources (rausgegangen, etc.)
+# Maps city names from aggregators to internal normalized names
+AGGREGATOR_CITY_MAPPING = {
+    "monheim am rhein": "monheim",
+    "leverkusen": "leverkusen",
+    "langenfeld": "langenfeld",
+    "hilden": "hilden",
+    "dormagen": "dormagen",
+    "burscheid": "burscheid",
+    "leichlingen": "leichlingen",
+    "hitdorf": "hitdorf",
+    "ratingen": "ratingen",
+    "solingen": "solingen",
+    "haan": "haan",
+    "düsseldorf": "dusseldorf",
+    "köln": "koeln",
+}
+
+
+def extract_city_from_address(address_locality: str, postal_code: str, default_city: str = "") -> str:
+    """Extract city name from address fields, handling swapped postal codes.
+    
+    Some aggregators (like rausgegangen) may have swapped address fields:
+    - addressLocality: "42719" (postal code)
+    - postalCode: "Solingen" (city name)
+    
+    This function detects this situation and returns the correct city name.
+    
+    Args:
+        address_locality: Value from addressLocality field.
+        postal_code: Value from postalCode field.
+        default_city: Fallback city name if both fields fail.
+    
+    Returns:
+        Normalized lowercase city name.
+    
+    Examples:
+        >>> extract_city_from_address("42719", "Solingen", "monheim")
+        'solingen'
+        >>> extract_city_from_address("Solingen", "42719", "monheim")
+        'solingen'
+        >>> extract_city_from_address("Leverkusen", "51379", "monheim")
+        'leverkusen'
+    """
+    import re
+    
+    # Pattern to detect 5-digit postal codes (German format)
+    postal_pattern = r'^\d{5}$'
+    
+    # Check if addressLocality is a postal code
+    if address_locality and re.match(postal_pattern, address_locality.strip()):
+        # addressLocality is a postal code, try postal_code for city
+        if postal_code and not re.match(postal_pattern, postal_code.strip()):
+            # postal_code looks like a city name
+            return normalize_city(postal_code, default_city)
+    
+    # Use addressLocality as primary (standard case)
+    if address_locality:
+        return normalize_city(address_locality, default_city)
+    
+    # Try postal_code as fallback
+    if postal_code:
+        return normalize_city(postal_code, default_city)
+    
+    # No valid city found, use default
+    return default_city.lower() if default_city else ""
+
+
+def map_aggregator_city(raw_city: str, default_city: str = "") -> str:
+    """Map aggregator city name to normalized internal city name.
+    
+    This function handles city mapping for aggregator sources like rausgegangen,
+    which may return city names in different formats than our internal system.
+    
+    Args:
+        raw_city: City name from aggregator source (e.g., "Monheim am Rhein").
+        default_city: Fallback city name if mapping fails.
+    
+    Returns:
+        Normalized lowercase city name matching internal system.
+        Returns empty string if raw_city is empty and no default provided.
+    
+    Examples:
+        >>> map_aggregator_city("Monheim am Rhein", "monheim")
+        'monheim'
+        >>> map_aggregator_city("Leverkusen", "monheim")
+        'leverkusen'
+        >>> map_aggregator_city("Düsseldorf", "")
+        'dusseldorf'
+    """
+    if not raw_city:
+        return default_city.lower() if default_city else ""
+    
+    city_lower = raw_city.lower().strip()
+    
+    # Direct mapping lookup
+    if city_lower in AGGREGATOR_CITY_MAPPING:
+        return AGGREGATOR_CITY_MAPPING[city_lower]
+    
+    # If not found in mapping, try normalize_city as fallback
+    # This handles cases like "Leverkusen" → "leverkusen"
+    return normalize_city(raw_city, default_city)

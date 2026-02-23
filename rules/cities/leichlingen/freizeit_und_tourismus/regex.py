@@ -178,6 +178,7 @@ class FreizeitUndTourismusRegex(BaseRule):
                     time=time_str,
                     source=self.url,
                     category=category,
+                    origin=self.get_origin(),
                 )
                 
                 events.append(event)

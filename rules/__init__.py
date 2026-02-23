@@ -23,6 +23,7 @@ from .registry import (
     create_scraper,
     create_regex,
     reinitialize_registry,
+    get_origin_for_url,
 )
 
 from .urls import (
@@ -123,6 +124,7 @@ __all__ = [
     "create_scraper",
     "create_regex",
     "reinitialize_registry",
+    "get_origin_for_url",
     "fetch_events_from_url",
     "fetch_events_from_urls",
 ]

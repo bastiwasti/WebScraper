@@ -118,12 +118,13 @@ class CityEventsRegex(BaseRule):
 
                 event = Event(
                     name=title,
-                    description=teaser,
-                    location=location_name,
+                    description=description,
+                    location=location,
                     date=date_str,
-                    time="",
+                    time=time_str,
                     source=self.url,
                     category=category,
+                    origin=self.get_origin(),
                 )
                 
                 events.append(event)

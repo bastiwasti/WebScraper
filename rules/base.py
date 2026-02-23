@@ -37,6 +37,7 @@ class Event:
     city: str = ""
     event_url: str = ""
     raw_data: dict | None = None
+    origin: str = ""
 
 
 class BaseScraper(ABC):
@@ -53,6 +54,11 @@ class BaseScraper(ABC):
     def needs_browser(self) -> bool:
         """Return True if this scraper requires a headless browser."""
         return False
+
+    def get_origin(self) -> str:
+        """Get origin identifier for this scraper."""
+        from rules.registry import get_origin_for_url
+        return get_origin_for_url(self.url)
 
     @classmethod
     @abstractmethod
@@ -128,6 +134,11 @@ class BaseRule(ABC):
 
     def __init__(self, url: str):
         self.url = url
+
+    def get_origin(self) -> str:
+        """Get origin identifier for this parser."""
+        from rules.registry import get_origin_for_url
+        return get_origin_for_url(self.url)
 
     @classmethod
     @abstractmethod
@@ -273,6 +284,7 @@ class BaseRule(ABC):
                 time="",
                 source=self.url,
                 category="other",
+                origin="llm_fallback",
             )]
         except Exception as e:
             print(f"Warning: LLM fallback failed: {e}")

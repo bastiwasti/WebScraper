@@ -114,13 +114,14 @@ class KulturwerkeRegex(BaseRule):
                         event_name = f"{title} - {subtitle}"
                     
                     events.append(Event(
-                        name=event_name,
-                        description="",
+                        name=title,
+                        description=description,
                         location=location,
-                        date=date_str,
-                        time=time_str,
+                        date=date,
+                        time=time,
                         source=self.url,
-                        category=self._infer_category(genre, event_name),
+                        category=category,
+                        origin=self.get_origin(),
                     ))
             
             except Exception as e:

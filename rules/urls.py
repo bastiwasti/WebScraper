@@ -36,6 +36,20 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
         "freizeit_und_tourismus": "https://www.leichlingen.de/freizeit-und-tourismus/veranstaltungen",
     },
 
+    "burscheid": {
+        "veranstaltungskalender": "https://www.burscheid.de/portal/seiten/veranstaltungskalender-900000009-40230.html",
+    },
+
+}
+
+
+# Aggregator event URLs
+# Each aggregator can have multiple city entries
+# Key is aggregator name, value is dict of {city_slug: url}
+AGGREGATOR_URLS: Dict[str, Dict[str, str]] = {
+    "rausgegangen": {
+        "monheim": "https://rausgegangen.de/monheim-am-rhein/?radius=20000&lat=51.08713514258467&lng=6.884078972507269&city=monheim-am-rhein&geospatial_query_type=CENTER_AND_RADIUS",
+    },
 }
 
 
@@ -44,6 +58,10 @@ def get_all_urls() -> List[str]:
     all_urls = []
 
     for city, url_dict in CITY_URLS.items():
+        all_urls.extend(url_dict.values())
+
+    # Add aggregator URLs
+    for aggregator, url_dict in AGGREGATOR_URLS.items():
         all_urls.extend(url_dict.values())
 
     return all_urls

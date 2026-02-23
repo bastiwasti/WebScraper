@@ -116,7 +116,7 @@ def main() -> None:
         """Resolve --url argument to actual URL.
         
         Args:
-            url_or_folder: Either a full URL or a folder name (e.g., 'lust_auf').
+            url_or_folder: Either a full URL or a folder name (e.g., 'lust_auf' or 'rausgegangen/monheim').
         
         Returns:
             Actual URL string to scrape.
@@ -126,9 +126,23 @@ def main() -> None:
             return url_or_folder
         
         # Otherwise, treat it as a folder name
-        from rules.urls import CITY_URLS
+        from rules.urls import CITY_URLS, AGGREGATOR_URLS
         
         folder_lower = url_or_folder.lower().strip()
+        
+        # Check for aggregator syntax: "aggregator/city"
+        if '/' in url_or_folder:
+            parts = url_or_folder.split('/')
+            if len(parts) == 2:
+                agg_key, city_key = parts
+                agg_key = agg_key.lower()
+                city_key = city_key.lower()
+                
+                # Search in aggregators
+                if agg_key in AGGREGATOR_URLS:
+                    url_dict = AGGREGATOR_URLS[agg_key]
+                    if city_key in url_dict:
+                        return url_dict[city_key]
         
         # Search for folder in all cities
         for city, url_dict in CITY_URLS.items():
@@ -136,7 +150,13 @@ def main() -> None:
                 if subfolder.lower() == folder_lower:
                     return url
         
-        print(f"Error: Folder '{url_or_folder}' not found in any city", file=sys.stderr)
+        # Search for folder in all aggregators (without city key)
+        for agg, url_dict in AGGREGATOR_URLS.items():
+            if agg.lower() == folder_lower:
+                # Return first URL if just aggregator name provided
+                return list(url_dict.values())[0]
+        
+        print(f"Error: Folder '{url_or_folder}' not found in any city or aggregator", file=sys.stderr)
         sys.exit(1)
     
     # Resolve URL if --url is provided (overrides --cities)

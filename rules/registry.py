@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Type, Optional, Union
 
 from .base import BaseRule, BaseScraper
-from .urls import CITY_URLS
+from .urls import CITY_URLS, AGGREGATOR_URLS
 
 
 class RuleEntry:
@@ -100,7 +100,49 @@ def _discover_rules() -> Dict[str, RuleEntry]:
                     print(f"Registered: {city_key}/{subfolder_key} -> {url}")
                 else:
                     print(f"Warning: Could not find rule classes for {base_path}")
- 
+  
+    # Discover aggregator rules
+    for agg_key, url_dict in AGGREGATOR_URLS.items():
+        # Expected module paths:
+        # rules.aggregators.{agg_key} (no subfolder for aggregators)
+        
+        base_path = f"rules.aggregators.{agg_key}"
+        scraper_module = _import_module(f"{base_path}.scraper")
+        regex_module = _import_module(f"{base_path}.regex")
+
+        if scraper_module and regex_module:
+            # Find rule classes in each module
+            scraper_class = None
+            regex_class = None
+
+            for attr_name in dir(scraper_module):
+                attr = getattr(scraper_module, attr_name)
+                if (isinstance(attr, type) and
+                    issubclass(attr, BaseScraper) and
+                    attr != BaseScraper and
+                    attr_name.endswith("Scraper")):
+                    scraper_class = attr
+                    break
+
+            for attr_name in dir(regex_module):
+                attr = getattr(regex_module, attr_name)
+                if (isinstance(attr, type) and
+                    issubclass(attr, BaseRule) and
+                    attr != BaseRule and
+                    (attr_name.endswith("Rule") or attr_name.endswith("Regex"))):
+                    regex_class = attr
+                    break
+
+            # Register all URLs for this aggregator using the same scraper/regex classes
+            for subfolder_key, url in url_dict.items():
+                if scraper_class and regex_class:
+                    registry[url] = RuleEntry(url, scraper_class, regex_class)
+                    print(f"Registered: {agg_key}/{subfolder_key} -> {url}")
+                else:
+                    print(f"Warning: Could not find rule classes for {base_path}")
+        else:
+            print(f"Warning: Could not import modules for {base_path}")
+  
     return registry
 
 
@@ -222,6 +264,40 @@ def create_regex(url: str) -> BaseRule:
     """
     regex_class = get_regex_for_url(url)
     return regex_class(url)
+
+
+def get_origin_for_url(url: str) -> str:
+    """Generate origin identifier for a URL.
+
+    Returns:
+        "rausgegangen_monheim" (aggregator)
+        "leverkusen_lust_auf" (city with subfolder)
+        "monheim_terminkalender" (city with subfolder)
+        "llm_fallback" (if URL not found)
+
+    Format: city_subfolder (lowercase)
+    """
+    url_lower = url.lower()
+
+    # Check aggregators first - use partial matching (starts with or contains)
+    for agg_key, url_dict in AGGREGATOR_URLS.items():
+        for subfolder, registered_url in url_dict.items():
+            registered_url_lower = registered_url.lower()
+            # Check if URL starts with registered URL or registered URL starts with URL
+            if url_lower.startswith(registered_url_lower) or registered_url_lower.startswith(url_lower):
+                # For aggregators, use agg_key_subfolder format
+                return f"{agg_key}_{subfolder}"
+
+    # Check cities - use partial matching
+    for city_key, url_dict in CITY_URLS.items():
+        for subfolder, registered_url in url_dict.items():
+            registered_url_lower = registered_url.lower()
+            # Check if URL starts with registered URL or registered URL starts with URL
+            if url_lower.startswith(registered_url_lower) or registered_url_lower.startswith(url_lower):
+                # For cities, use city_subfolder format
+                return f"{city_key}_{subfolder}"
+
+    return "llm_fallback"
 
 
 def reinitialize_registry() -> None:

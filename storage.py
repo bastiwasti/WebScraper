@@ -23,23 +23,49 @@ def _migrate_status_table(conn: sqlite3.Connection) -> None:
         # Check if status table exists
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='status'")
         table_exists = cur.fetchone() is not None
-        
+
         if not table_exists:
             return  # Table doesn't exist yet, will be created with new columns
-        
+
         # Check if events_regex column exists
         cur = conn.execute("PRAGMA table_info(status)")
         columns = [row["name"] for row in cur.fetchall()]
-        
+
         if "events_regex" not in columns:
             conn.execute("ALTER TABLE status ADD COLUMN events_regex INTEGER DEFAULT 0")
             conn.commit()
-        
+
         if "events_llm" not in columns:
             conn.execute("ALTER TABLE status ADD COLUMN events_llm INTEGER DEFAULT 0")
             conn.commit()
     except Exception as e:
         print(f"Warning: Failed to migrate status table: {e}")
+
+
+def _migrate_events_table(conn: sqlite3.Connection) -> None:
+    """Migrate events table to add origin column if it doesn't exist."""
+    try:
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
+        table_exists = cur.fetchone() is not None
+
+        if not table_exists:
+            return  # Table doesn't exist yet, will be created with new columns
+
+        # Check if origin column exists
+        cur = conn.execute("PRAGMA table_info(events)")
+        columns = [row["name"] for row in cur.fetchall()]
+
+        if "origin" not in columns:
+            conn.execute("ALTER TABLE events ADD COLUMN origin TEXT")
+            conn.commit()
+            print("✓ Added 'origin' column to events table")
+
+            # Add index for faster queries
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_origin ON events(origin)")
+            conn.commit()
+            print("✓ Added index on 'origin' column")
+    except Exception as e:
+        print(f"Warning: Failed to migrate events table: {e}")
 
 
 def init_db(conn: sqlite3.Connection | None = None) -> None:
@@ -99,6 +125,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 detail_description TEXT,
                 detail_full_description TEXT,
                 raw_data TEXT,
+                origin TEXT,
                 FOREIGN KEY (run_id) REFERENCES runs(id)
             )
         """)
@@ -147,6 +174,9 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
         
         # Migrate existing status table to add new columns if needed
         _migrate_status_table(conn)
+
+        # Migrate events table to add origin column if needed
+        _migrate_events_table(conn)
         
         conn.commit()
     finally:
@@ -918,8 +948,8 @@ def insert_events(
 
             conn.execute(
                 """
-                    INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, event_url, detail_scraped, detail_page_html, detail_description, detail_location)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, event_url, detail_scraped, detail_page_html, detail_description, detail_location, origin)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -937,6 +967,7 @@ def insert_events(
                         detail_page_html,
                         detail_description[:2000],
                         detail_location[:500],
+                        e.get("origin", ""),
                     ),
             )
             count += 1
@@ -965,7 +996,7 @@ def get_events(
             # SQLite: date(created_at) >= date('now', '-N days')
             cur = conn.execute(
                 """
-                SELECT id, name, description, location, start_datetime, end_datetime, category, source, city, created_at
+                SELECT id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, origin
                 FROM events
                 WHERE date(created_at) >= date('now', ?)
                 ORDER BY start_datetime DESC
@@ -976,7 +1007,7 @@ def get_events(
         else:
             cur = conn.execute(
                 """
-                SELECT id, name, description, location, start_datetime, end_datetime, category, source, city, created_at
+                SELECT id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, origin
                 FROM events
                 ORDER BY start_datetime DESC
                 LIMIT ?
@@ -996,6 +1027,7 @@ def get_events(
                 "source": r["source"] or "",
                 "city": r["city"] or "",
                 "created_at": r["created_at"],
+                "origin": r["origin"] or "",
             }
             for r in rows
         ]

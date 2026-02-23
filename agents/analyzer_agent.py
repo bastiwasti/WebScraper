@@ -10,6 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
 from storage import create_run_status
+from rules import categories
 
 
 SYSTEM_PROMPT = """Sie sind ein Datenanalyst. Sie erhalten einen Text, der lokale Veranstaltungen beschreibt (aus Websuche/Zusammenfassungen).
@@ -20,18 +21,18 @@ Ihre Aufgabe ist es, jedes Ereignis zu extrahieren und als einzelnes JSON-Array 
 - "date": string (z.B. "2025-02-01" oder "Samstag 1. Februar") - Verwenden Sie EXAKT dieselben Wörter wie im Original
 - "time": string (z.B. "14:00" oder "ganzen Tag") oder leere Zeichenkette, wenn unbekannt
 - "source": string (URL oder Name der Website, wo das Ereignis gefunden wurde; erforderlich)
-- "category": string - Kategorisieren Sie als einen dieser: "Bildende Kunst & Ausstellungen", "Live-Musik & Konzerte", "Darstellende Kunst & Theater", "Gemeinschaft & Kulturfeste", "Vorträge & Bildungsveranstaltungen", "Film & Kino", "Kulinarik & Gastronomie", "Club & Live-Musik-Abende", "Sonstige" (für alle anderen Events, die nicht in die anderen Kategorien passen)
+- "category": string - Kategorisieren Sie als einen dieser: "family", "education", "sport", "culture", "market", "festival", "adult", "community", "other" (für alle anderen Events, die nicht in die anderen Kategorien passen)
 
 KATEGORIEN:
-- "Bildende Kunst & Ausstellungen": Ausstellungen, Kunstpräsentationen, Vernissagen, Finissagen, Malerei, Fotografie, Installationen
-- "Live-Musik & Konzerte": Konzerte, Musikaufführungen, Orgelkonzerte, Jazz-Veranstaltungen, klassische Musik
-- "Darstellende Kunst & Theater": Theateraufführungen, Komödien, Musicals, Kabarett, Schauspiel
-- "Gemeinschaft & Kulturfeste": Feste, Märkte, Karneval, Umzüge, Open-Air-Veranstaltungen, Kulturfeste
-- "Vorträge & Bildungsveranstaltungen": Vorträge, Lesungen, Workshops, Informationsveranstaltungen, Bildungsangebote
-- "Film & Kino": Filmvorführungen, Kinoevents, Filmabende
-- "Kulinarik & Gastronomie": Weinproben, Essen & Trinken Events, Gastronomieführungen, kulinarische Erlebnisse
-- "Club & Live-Musik-Abende": Live-Musik in Clubs/Bars, Bandabende, Clubnights (oft mehrere Bands)
-- "Sonstige": Alle anderen Veranstaltungen, die nicht in die obigen Kategorien passen
+- "family": Familienveranstaltungen, Kinder, Jugend, Eltern, Familientage, Kindertage
+- "education": Kurse, Workshops, VHS, Volkshochschule, Bildung, Schulungen, Seminare, Vorträge, Bibliothek
+- "sport": Sport, Fitness, Laufen, Schwimmen, Rad, Fußball, Tennis, Yoga, Wandern, Turniere, Jogging, Radfahren
+- "culture": Ausstellungen, Konzerte, Theater, Film, Kino, Lesungen, Führungen, Kunst, Museum, Musik, Galerie, Oper, Orchester
+- "market": Märkte, Flohmärkte, Verkaufsmärkte, Weihnachtsmärkte, Bauernmärkte, Handwerkermärkte
+- "festival": Feste, Festivals, Karneval, Fastnacht, Kirmes, Volksfeste, Stadtfeste, Sommerfeste
+- "adult": Erwachsene, Senioren, Abend, Nacht, Bar, Club, Party, Frauen, Damen, Nachtleben, Diskothek
+- "community": Treffen, Vereine, Gruppen, Nachbarschaft, Soziales, Gemeinschaft, Bürgerverein, Sportvereine, Musikvereine
+- "other": Alle anderen Veranstaltungen, die nicht in die obigen Kategorien passen
 
 WICHTIG: Verwenden Sie EXAKT dieselben Wörter wie im Original - kein Übersetzen, kein Umformulieren, kein Hinzufügen oder Entfernen von Informationen.
 Wenn der Text "Zeugniswochenende" enthält, schreiben Sie "Zeugniswochenende", nicht "Weekend of Zeugnisausgabe".
@@ -206,24 +207,11 @@ class AnalyzerAgent:
         """Infer category from event description and name."""
         description = description or ""
         name = name or ""
-        text = (description + " " + name).lower()
         
-        category_keywords = {
-            "Bildende Kunst & Ausstellungen": ["kunst", "ausstellung", "vernissage", "finissage", "maler", "fotograf", "installation"],
-            "Live-Musik & Konzerte": ["konzert", "musik", "jazz", "orgel", "band", "live", "orchester", "musikschule", "singt", "sänger", "musical"],
-            "Darstellende Kunst & Theater": ["theater", "komöd", "kabarett", "schauspiel", "komödie", "bühne", "drama"],
-            "Gemeinschaft & Kulturfeste": ["fest", "markt", "karneval", "umzug", "kulturfest", "weihnachtsmarkt", "volksfest", "straße", "kinderzug", "rosenmontag", "karnevalszug", "veedelszoch"],
-            "Vorträge & Bildungsveranstaltungen": ["vortrag", "lesung", "workshop", "bildung", "seminar", "kurs", "referat", "info", "diskussion", "café", "tref", "begegnungsstätte", "bibliothek", "digitalcafé"],
-            "Film & Kino": ["film", "kino", "vorführung", "movie", "cinema", "filmaufführung"],
-            "Kulinarik & Gastronomie": ["wein", "ess", "trink", "prob", "gastronom", "koch", "kulinar", "restaurant", "gastros", "beer", "bier", "kaffee", "kuchen", "tapas", "proben"],
-            "Club & Live-Musik-Abende": ["rockin'", "rooster", "club", "open mic", "pub", "live night", "kneipenabend"],
-        }
+        category = categories.infer_category(description, name)
+        category = categories.normalize_category(category)
         
-        for category, keywords in category_keywords.items():
-            if any(kw in text for kw in keywords):
-                return category
-        
-        return "Sonstige"
+        return category
 
     def _normalize_field_names(self, event: dict) -> dict:
         """Normalize German field names to English database schema.
@@ -266,6 +254,13 @@ class AnalyzerAgent:
         city = get_city_for_url(source)
         if city:
             return city
+        
+        # Special handling for datefix.de external event system
+        # Dormagen uses datefix.de (dfxid parameter in URL)
+        # Infer city from datefix domain to maintain correct mapping
+        if 'datefix' in source.lower():
+            return 'dormagen'
+        
         return ''
 
     def _deduplicate_events(self, events: list[dict]) -> list[dict]:
@@ -406,6 +401,7 @@ class AnalyzerAgent:
                 "event_url": event.event_url,
                 "raw_data": event.raw_data,
                 "category": event.category if hasattr(event, 'category') else "other",
+                "origin": event.origin,
             }
             
             infer_city = event.city or self._infer_city_from_source(event.source, url_metrics)

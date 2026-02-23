@@ -1,6 +1,7 @@
 """HTML-based parser for Schauplatz event pages."""
 from typing import List, Optional
 from rules.base import BaseRule, Event
+from rules import categories, utils
 import requests
 
 
@@ -83,14 +84,19 @@ class SchauplatzRegex(BaseRule):
                     print(f"[Schauplatz] Skipping card: no title")
                     continue
                 
+                full_description = f"{excerpt} {price_alert}" if price_alert else excerpt
+                category = categories.infer_category(full_description, title)
+                category = categories.normalize_category(category)
+                
                 events.append(Event(
                     name=title,
-                    description=f"{excerpt} {price_alert}" if price_alert else excerpt,
+                    description=full_description,
                     location=venue,
                     date=date_str,
                     time=time_str,
                     source=self.url,
-                    category="other",
+                    category=category,
+                    origin=self.get_origin(),
                 ))
             
             except Exception as e:
