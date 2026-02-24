@@ -16,6 +16,7 @@ import logging
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from playwright.sync_api import sync_playwright
 
@@ -197,11 +198,62 @@ class RausgegangenScraper(BaseScraper):
             
         return event_urls
 
+    def _fetch_single_event(self, event_url: str, idx: int, total: int) -> dict | None:
+        """Fetch single event detail page with timeout handling.
+        
+        Args:
+            event_url: Event detail page URL.
+            idx: Event index for logging.
+            total: Total number of events for logging.
+        
+        Returns:
+            Event detail dict or None if failed.
+        """
+        import requests
+        import requests.exceptions
+        
+        REQUEST_TIMEOUT = 15  # seconds per request
+        
+        logger.info(f"[Rausgegangen] Fetching event {idx}/{total}: {event_url}")
+        print(f"[Rausgegangen] Fetching event {idx}/{total}: {event_url}")
+        
+        try:
+            resp = requests.get(
+                event_url,
+                timeout=REQUEST_TIMEOUT,
+                headers={"User-Agent": "WeeklyMail/1.0"}
+            )
+            resp.raise_for_status()
+            
+            json_ld_data = self._extract_json_ld(resp.text)
+            
+            if json_ld_data:
+                logger.info(f"[Rausgegangen] ✓ Successfully extracted data from {event_url}")
+                print(f"[Rausgegangen] ✓ Successfully extracted data from {event_url}")
+                return {
+                    'url': event_url,
+                    'json_ld': json_ld_data,
+                    'html': resp.text,
+                }
+            else:
+                logger.warning(f"[Rausgegangen] No JSON-LD found in {event_url}")
+                print(f"[Rausgegangen] No JSON-LD found in {event_url}")
+                return None
+                
+        except requests.exceptions.Timeout:
+            logger.warning(f"[Rausgegangen] ⏱ Timeout fetching {event_url} after {REQUEST_TIMEOUT}s")
+            print(f"[Rausgegangen] ⏱ Timeout fetching {event_url} after {REQUEST_TIMEOUT}s")
+            return None
+        except Exception as e:
+            logger.error(f"[Rausgegangen] ✗ Failed to fetch {event_url}: {e}")
+            print(f"[Rausgegangen] ✗ Failed to fetch {event_url}: {e}")
+            return None
+    
     def _fetch_event_details(self, event_urls: List[str]) -> List[dict]:
-        """Fetch event detail pages and extract structured data (Level 2).
+        """Fetch event detail pages concurrently and extract structured data (Level 2).
         
         For each event URL:
-        1. Fetch page
+        1. Fetch page (concurrently with ThreadPoolExecutor)
         2. Extract JSON-LD schema
         3. Parse event data (name, dates, location, price)
         
@@ -213,39 +265,30 @@ class RausgegangenScraper(BaseScraper):
         """
         import requests
         
+        MAX_WORKERS = 5  # Limit concurrent requests
         event_details = []
         
-        for idx, event_url in enumerate(event_urls, 1):
-            logger.info(f"[Rausgegangen] Fetching event {idx}/{len(event_urls)}: {event_url}")
-            print(f"[Rausgegangen] Fetching event {idx}/{len(event_urls)}: {event_url}")
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(self._fetch_single_event, url, idx, len(event_urls)): (idx, url)
+                for idx, url in enumerate(event_urls, 1)
+            }
             
-            try:
-                resp = requests.get(
-                    event_url,
-                    timeout=15,
-                    headers={"User-Agent": "WeeklyMail/1.0"}
-                )
-                resp.raise_for_status()
+            completed_count = 0
+            for future in as_completed(futures):
+                idx, url = futures[future]
+                result = future.result()
                 
-                # Extract JSON-LD schema
-                json_ld_data = self._extract_json_ld(resp.text)
+                if result:
+                    event_details.append(result)
+                    completed_count += 1
                 
-                if json_ld_data:
-                    event_details.append({
-                        'url': event_url,
-                        'json_ld': json_ld_data,
-                        'html': resp.text,
-                    })
-                    logger.info(f"[Rausgegangen] ✓ Successfully extracted data from {event_url}")
-                    print(f"[Rausgegangen] ✓ Successfully extracted data from {event_url}")
-                else:
-                    logger.warning(f"[Rausgegangen] No JSON-LD found in {event_url}")
-                    print(f"[Rausgegangen] No JSON-LD found in {event_url}")
-                
-            except Exception as e:
-                logger.error(f"[Rausgegangen] ✗ Failed to fetch {event_url}: {e}")
-                print(f"[Rausgegangen] ✗ Failed to fetch {event_url}: {e}")
-                continue
+                if completed_count % 10 == 0:
+                    logger.info(f"[Rausgegangen] Progress: {completed_count}/{len(event_urls)} events fetched")
+                    print(f"[Rausgegangen] Progress: {completed_count}/{len(event_urls)} events fetched")
+
+        logger.info(f"[Rausgegangen] Completed: {len(event_details)}/{len(event_urls)} events fetched successfully")
+        print(f"[Rausgegangen] Completed: {len(event_details)}/{len(event_urls)} events fetched successfully")
         
         return event_details
 
