@@ -365,7 +365,7 @@ class RausgegangenScraper(BaseScraper):
         street_address = address_data.get('streetAddress', '') if isinstance(address_data, dict) else ''
         
         # Map city name - handle swapped postal code fields (rausgegenden bug)
-        city = utils.extract_city_from_address(city_raw, postal_code, default_city='monheim')
+        city = utils.extract_city_from_address(city_raw, postal_code, default_city='monheim_am_rhein')
         
         # Build location string
         location_parts = [location_name, street_address]

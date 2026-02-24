@@ -10,7 +10,7 @@ from typing import List, Dict
 # Each city can have multiple URLs (e.g., main site + cultural venues)
 # Key is subfolder name in rules/cities/
 CITY_URLS: Dict[str, Dict[str, str]] = {
-    "monheim": {
+    "monheim_am_rhein": {
         "terminkalender": "https://www.monheim.de/freizeit-tourismus/terminkalender",
         "kulturwerke": "https://www.monheimer-kulturwerke.de/de/kalender/",
     },
@@ -48,7 +48,7 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
 # Key is aggregator name, value is dict of {city_slug: url}
 AGGREGATOR_URLS: Dict[str, Dict[str, str]] = {
     "rausgegangen": {
-        "monheim": "https://rausgegangen.de/monheim-am-rhein/?radius=20000&lat=51.08713514258467&lng=6.884078972507269&city=monheim-am-rhein&geospatial_query_type=CENTER_AND_RADIUS",
+        "monheim_am_rhein": "https://rausgegangen.de/monheim-am-rhein/?radius=20000&lat=51.08713514258467&lng=6.884078972507269&city=monheim-am-rhein&geospatial_query_type=CENTER_AND_RADIUS",
     },
 }
 
@@ -103,11 +103,11 @@ def get_urls_for_city(city: str | list[str]) -> List[str]:
 
 def get_url_for_key(city: str, key: str) -> str | None:
     """Return specific URL for city and key.
-
+ 
     Args:
-        city: City name (e.g., "monheim")
+        city: City name (e.g., "monheim_am_rhein")
         key: Subfolder key (e.g., "terminkalender")
-
+ 
     Returns:
         URL string or None if not found.
     """
@@ -131,12 +131,12 @@ def get_city_for_url(url: str) -> str | None:
 
 def get_rule_key_for_url(url: str) -> tuple[str, str] | None:
     """Return (type, key) tuple for a given URL.
-
+ 
     Returns:
         ("city", city_key) or None.
-
+ 
     Examples:
-        - "https://www.monheim.de/freizeit-tourismus/terminkalender" -> ("city", "monheim/terminkalender")
+        - "https://www.monheim.de/freizeit-tourismus/terminkalender" -> ("city", "monheim_am_rhein/terminkalender")
     """
     url_lower = url.lower()
 

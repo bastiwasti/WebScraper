@@ -915,12 +915,14 @@ def insert_events(
             # Extract Level 2 data for database columns
             raw_data_dict = e.get("raw_data")
             detail_description = ""
+            detail_full_description = ""
             detail_location = ""
             detail_page_html = ""
             detail_end_time = ""
             
             if raw_data_dict and isinstance(raw_data_dict, dict):
                 detail_description = raw_data_dict.get("detail_description", "")
+                detail_full_description = raw_data_dict.get("detail_full_description", "")
                 detail_location = raw_data_dict.get("detail_location", "")
                 detail_page_html = raw_data_dict.get("html", "")
                 detail_end_time = raw_data_dict.get("detail_end_time", "")
@@ -948,8 +950,8 @@ def insert_events(
 
             conn.execute(
                 """
-                    INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, event_url, detail_scraped, detail_page_html, detail_description, detail_location, origin)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, event_url, detail_scraped, detail_page_html, detail_description, detail_location, detail_full_description, origin)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -967,6 +969,7 @@ def insert_events(
                         detail_page_html,
                         detail_description[:2000],
                         detail_location[:500],
+                        detail_full_description,
                         e.get("origin", ""),
                     ),
             )

@@ -289,7 +289,7 @@ def normalize_city(raw_city: str, default_city: str) -> str:
 # City name mappings for aggregator sources (rausgegangen, etc.)
 # Maps city names from aggregators to internal normalized names
 AGGREGATOR_CITY_MAPPING = {
-    "monheim am rhein": "monheim",
+    "monheim am rhein": "monheim_am_rhein",
     "leverkusen": "leverkusen",
     "langenfeld": "langenfeld",
     "hilden": "hilden",
@@ -323,11 +323,11 @@ def extract_city_from_address(address_locality: str, postal_code: str, default_c
         Normalized lowercase city name.
     
     Examples:
-        >>> extract_city_from_address("42719", "Solingen", "monheim")
+        >>> extract_city_from_address("42719", "Solingen", "monheim_am_rhein")
         'solingen'
-        >>> extract_city_from_address("Solingen", "42719", "monheim")
+        >>> extract_city_from_address("Solingen", "42719", "monheim_am_rhein")
         'solingen'
-        >>> extract_city_from_address("Leverkusen", "51379", "monheim")
+        >>> extract_city_from_address("Leverkusen", "51379", "monheim_am_rhein")
         'leverkusen'
     """
     import re
@@ -369,9 +369,9 @@ def map_aggregator_city(raw_city: str, default_city: str = "") -> str:
         Returns empty string if raw_city is empty and no default provided.
     
     Examples:
-        >>> map_aggregator_city("Monheim am Rhein", "monheim")
-        'monheim'
-        >>> map_aggregator_city("Leverkusen", "monheim")
+        >>> map_aggregator_city("Monheim am Rhein", "monheim_am_rhein")
+        'monheim_am_rhein'
+        >>> map_aggregator_city("Leverkusen", "monheim_am_rhein")
         'leverkusen'
         >>> map_aggregator_city("Düsseldorf", "")
         'dusseldorf'

@@ -214,16 +214,21 @@ class TerminkalenderRegex(BaseRule):
                 break
 
         description_parts = []
+        description_html_parts = []
         for p in soup.find_all('p'):
             text = p.get_text(strip=True)
+            html_str = str(p)
             if (len(text) > 30 and
-                not any(x in text for x in ['Terminkalender', 'zurück', 'Häufig gesucht', 'Kategorie:', 'Ort:'])):
+                not any(x in text for x in ['Terminkalender', 'zurück', 'Häufig gesucht', 'Kategorie:', 'Ort:', 'footer-contact'])):
                 description_parts.append(text)
+                description_html_parts.append(html_str)
                 if len(description_parts) >= 2:
                     break
-
+        
         if description_parts:
             detail_data['detail_description'] = ' '.join(description_parts)
+        if description_html_parts:
+            detail_data['detail_full_description'] = '\n'.join(description_html_parts)
 
         return detail_data if detail_data else None
 

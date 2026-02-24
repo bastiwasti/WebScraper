@@ -188,17 +188,22 @@ class KulturwerkeRegex(BaseRule):
         detail_data = {}
         
         description_parts = []
+        description_html_parts = []
         
         for p in soup.find_all('p'):
             text = p.get_text(strip=True)
+            html_str = str(p)
             if len(text) > 50 and not any(skip in text.lower() for skip in ['kalender', 'zurück', 'termin', 'datum', 'uhrzeit', 'ort', 'preise']):
                 if text not in description_parts:
                     description_parts.append(text)
+                    description_html_parts.append(html_str)
                     if len(description_parts) >= 3:
                         break
         
         if description_parts:
             detail_data['detail_description'] = ' '.join(description_parts[:3])
+        if description_html_parts:
+            detail_data['detail_full_description'] = '\n'.join(description_html_parts[:3])
         
         for h3 in soup.find_all('h3'):
             text = h3.get_text(strip=True)
