@@ -2,6 +2,7 @@
 import re
 from typing import List, Optional
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rules.base import BaseRule, Event
 
 
@@ -212,13 +213,16 @@ class KulturwerkeRegex(BaseRule):
                 break
         
         return detail_data if detail_data else None
-    
+
     def fetch_level2_data(self, events: list[Event], raw_html: str | None = None) -> list[Event]:
-        """Fetch Level 2 detail data for Monheimer Kulturwerke events.
+        """Fetch Level 2 detail data for Monheimer Kulturwerke events (CONCURRENT).
         
         For each event within 1-month window, fetches the detail page and extracts:
-        - detail_description: Full event description
+        - detail_description: Plain text description
+        - detail_full_description: Full description with HTML formatting
         - detail_location: Enhanced location information
+        
+        Uses ThreadPoolExecutor with 5 workers for ~5x speedup.
         
         Args:
             events: List of Event objects from Level 1 parsing.
@@ -231,23 +235,21 @@ class KulturwerkeRegex(BaseRule):
             return events
         
         import requests
+        import requests.exceptions
         
         event_url_map = self.get_event_urls_from_html(raw_html)
         
         print(f"[Kulturwerke Level 2] Fetching detail pages for {len(events)} events (within 1-month window)...")
         
-        for event in events:
-            detail_url = event_url_map.get(event.name, "")
-            
-            if not detail_url:
-                continue
-            
-            event.event_url = detail_url
-            
+        MAX_WORKERS = 5
+        REQUEST_TIMEOUT = 15
+        
+        def fetch_event_detail(event, detail_url):
+            """Fetch single event detail page with timeout handling."""
             try:
                 resp = requests.get(
                     detail_url,
-                    timeout=15,
+                    timeout=REQUEST_TIMEOUT,
                     headers={"User-Agent": "WeeklyMail/1.0"},
                 )
                 resp.raise_for_status()
@@ -258,14 +260,36 @@ class KulturwerkeRegex(BaseRule):
                 if detail_data:
                     event.raw_data = detail_data
                     event.source = detail_url
-                    print(f"  ✓ Fetched details for: {event.name[:50]}")
+                    event.event_url = detail_url
+                    return event.name, True
                 else:
                     print(f"  ✗ Failed to parse details for: {event.name[:50]}")
-            
+                    return event.name, False
+                    
+            except requests.exceptions.Timeout:
+                print(f"[Kulturwerke Level 2] ⏱ Timeout fetching {event.name[:50]}")
+                return event.name, False
             except Exception as e:
-                print(f"  ✗ Failed to fetch detail page {detail_url}: {e}")
-                continue
+                print(f"[Kulturwerke Level 2] ✗ Failed to fetch {event.name[:50]}: {e}")
+                return event.name, False
         
-        print(f"[Kulturwerke Level 2] Completed: {sum(1 for e in events if e.raw_data)}/{len(events)} events with detail data")
+        # Fetch all detail pages concurrently
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = []
+            for event in events:
+                detail_url = event_url_map.get(event.name, "")
+                if detail_url:
+                    futures.append(executor.submit(fetch_event_detail, event, detail_url))
+            
+            completed_count = 0
+            for future in as_completed(futures):
+                name, success = future.result()
+                completed_count += 1
+                
+                if completed_count % 10 == 0:
+                    print(f"[Kulturwerke Level 2] Progress: {completed_count}/{len(futures)} events fetched")
+        
+        success_count = sum(1 for e in events if e.raw_data)
+        print(f"[Kulturwerke Level 2] Completed: {success_count}/{len(events)} events with detail data")
         
         return events

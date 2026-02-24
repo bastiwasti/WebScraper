@@ -9,8 +9,6 @@ from rules.base import BaseScraper
 class KulturwerkeScraper(BaseScraper):
     """Scraper for Monheimer Kulturwerke event pages."""
 
-    DISABLE_LEVEL_2 = True  # Skip Level 2 to avoid timeout (121 events × sequential requests = 30+ minutes)
-
     @classmethod
     def can_handle(cls, url: str) -> bool:
         """Handle Monheimer Kulturwerke pages."""
