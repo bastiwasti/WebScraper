@@ -117,10 +117,18 @@ class TerminkalenderRegex(BaseRule):
                 # Use H1 date as default
                 date = current_h1_date or ""
 
+                # Extract short description from abstract or csc-text
+                abstract_p = div.find('p', class_='abstract')
+                if abstract_p:
+                    description = abstract_p.get_text(strip=True)
+                else:
+                    csc = div.find('div', class_='csc-text')
+                    description = csc.get_text(separator='\n', strip=True) if csc else ''
+
                 if name:
                     from rules import categories, utils
                     # Infer and normalize category
-                    category = categories.infer_category("", name)
+                    category = categories.infer_category(description, name)
                     category = categories.normalize_category(category)
                     # Normalize time format
                     time = utils.normalize_time(time)
@@ -129,7 +137,7 @@ class TerminkalenderRegex(BaseRule):
 
                     events.append(Event(
                         name=name,
-                        description="",
+                        description=description,
                         location="",
                         date=date,
                         time=time,
@@ -226,7 +234,7 @@ class TerminkalenderRegex(BaseRule):
                     break
         
         if description_parts:
-            detail_data['detail_description'] = ' '.join(description_parts)
+            detail_data['detail_description'] = '\n\n'.join(description_parts)
         if description_html_parts:
             detail_data['detail_full_description'] = '\n'.join(description_html_parts)
 
