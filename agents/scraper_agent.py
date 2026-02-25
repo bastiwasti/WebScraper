@@ -392,7 +392,9 @@ class ScraperAgent:
                     city_urls = get_urls_for_city(city)
                     urls_to_fetch.extend(city_urls)
             else:
-                urls_to_fetch = list(CITY_URLS.values())
+                for city in CITY_URLS.keys():
+                    city_urls = get_urls_for_city(city)
+                    urls_to_fetch.extend(city_urls)
         
         if not urls_to_fetch:
             print("No URLs to scrape.")

@@ -56,8 +56,8 @@ python main.py [OPTIONS]
 Options:
   -l, --location TEXT       Location for search (default: "Monheim 40789")
   --cities TEXT             Cities to scrape (default: all)
-                              Available: monheim, langenfeld, leverkusen, hilden,
-                              dormagen
+                              Available: monheim_am_rhein, langenfeld, leverkusen,
+                              hilden, dormagen, hitdorf, leichlingen, burscheid
   --search-queries TEXT     Custom search queries (optional)
   --max-search INTEGER      Max search results (default: 8)
   --agent [scraper|analyzer|all] Run specific agent (default: all)
@@ -137,7 +137,7 @@ DB_PATH=data/events.db
 
 See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete list of supported cities and how to add new ones.
 
-**Currently Supported**: monheim, langenfeld, leverkusen, hilden, dormagen
+**Currently Supported**: monheim_am_rhein, langenfeld, leverkusen, hilden, dormagen, hitdorf, leichlingen, burscheid
 
 **Advanced Features**:
 - **2-Level Scraping**: Monheim terminkalender, Langenfeld schauplatz, Leverkusen stadt_erleben, Leverkusen lust_auf, and Dormagen feste_veranstaltungen fetch event detail pages for enhanced data (see [90_ToDo_Scraper.md](90_ToDo_Scraper.md))

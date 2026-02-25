@@ -33,7 +33,7 @@ def main() -> None:
     parser.add_argument(
         "--cities",
         nargs="*",
-        help="Cities to scrape (default: all). Available: monheim, langenfeld, leverkusen, hilden, dormagen, ratingen, solingen, haan.",
+        help="Cities to scrape (default: all). Available: monheim_am_rhein, langenfeld, leverkusen, hilden, dormagen, hitdorf, leichlingen, burscheid.",
     )
     parser.add_argument(
         "--url",
