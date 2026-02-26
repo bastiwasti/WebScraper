@@ -13,6 +13,7 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     "monheim_am_rhein": {
         "terminkalender": "https://www.monheim.de/freizeit-tourismus/terminkalender",
         "kulturwerke": "https://www.monheimer-kulturwerke.de/de/kalender/",
+        "marienburg_events": "https://marienburgmonheim.de/de/events",
     },
     "langenfeld": {
         "city_events": "https://www.langenfeld.de/Startseite/Aktuelles-und-Information/Veranstaltungen.htm",
@@ -49,6 +50,16 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
 AGGREGATOR_URLS: Dict[str, Dict[str, str]] = {
     "rausgegangen": {
         "monheim_am_rhein": "https://rausgegangen.de/monheim-am-rhein/?radius=20000&lat=51.08713514258467&lng=6.884078972507269&city=monheim-am-rhein&geospatial_query_type=CENTER_AND_RADIUS",
+    },
+    "eventim": {
+        "monheim_am_rhein": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Monheim+am+Rhein&sort=DateAsc&top=50",
+        "langenfeld": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Langenfeld&sort=DateAsc&top=50",
+        "leverkusen": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Leverkusen&sort=DateAsc&top=50",
+        "hilden": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Hilden&sort=DateAsc&top=50",
+        "dormagen": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Dormagen&sort=DateAsc&top=50",
+        "hitdorf": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Hitdorf&sort=DateAsc&top=50",
+        "leichlingen": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Leichlingen&sort=DateAsc&top=50",
+        "burscheid": "https://public-api.eventim.com/websearch/search/api/exploration/v1/products?webId=web__eventim-de&language=de&retail_partner=EVE&city_names=Burscheid&sort=DateAsc&top=50",
     },
 }
 
