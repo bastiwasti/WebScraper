@@ -10,20 +10,23 @@ All documentation files follow a format: `{number}_{name}.md`
 
 | Prefix | Number | Purpose | File |
 |---------|---------|----------|--------|
-| 00_ | 00 | Entry point | 00_readme.md, 00_DOCUMENTATION_INDEX.md |
+| 00_ | 00 | Entry point | README.md (root), 00_DOCUMENTATION_INDEX.md, 00_url_setup_prompt.md |
 | 01_ | 01 | Core guides | 01_agent_guide.md, 01_setup_guide.md |
 | 10_ | 10 | Architecture & Internals (category) | See below |
 | &nbsp;&nbsp;| 11 | Architecture | 11_architecture.md |
 | &nbsp;&nbsp;| 12 | Console print documentation | 12_consoleprint.md |
 | &nbsp;&nbsp;| 13 | Cron job setup | 13_cron_setup.md |
 | 14_ | 14 | Data models & systems | 14_categories.md |
+| 20_ | 20 | Implementation notes | 20_rausgegangen_implementation.md |
+| 30_ | 30 | City implementation plans | 30_leverkusen_implementation_plan.md |
+| 40_ | 40 | Configuration & Integration | 40_mcp_sqlite_setup.md |
 | 99_ | 99 | Historical reference | 99_agent_errors.md |
 
 ---
 
 ## Documentation Files
 
-### 00_readme.md
+### README.md (root directory)
 **Purpose:** Main entry point and quick start guide
 **For:** New users getting started with project
 
@@ -34,6 +37,14 @@ All documentation files follow a format: `{number}_{name}.md`
 - Project structure overview
 - Database schema
 - Tech stack
+
+---
+
+## 00_ Entry & Reference
+
+### 00_DOCUMENTATION_INDEX.md
+**Purpose:** This file - documentation index and navigation
+**For:** Finding specific documentation files
 
 ---
 
@@ -77,9 +88,9 @@ All documentation files follow a format: `{number}_{name}.md`
 
 ---
 
-## docs/ Directory
+## docs/ Directory Reference Files
 
-### docs/00_url_setup_prompt.md
+### 00_url_setup_prompt.md
 **Purpose:** Complete prompt for setting up new event scrapers from user-provided URL
 **For:** Users/AI systems implementing new event sources
 
@@ -184,6 +195,56 @@ All documentation files follow a format: `{number}_{name}.md`
 
 ---
 
+## 20 Implementation Notes
+
+**Category:** Implementation details for specific aggregators and components
+
+### 20_rausgegangen_implementation.md
+**Purpose:** Documentation of rausgegangen.de aggregator implementation
+**For:** Developers understanding the hybrid scraping approach
+
+**Contents:**
+- Hybrid approach (Level 1 + Level 2)
+- Directory structure
+- Scraper implementation details
+- Performance optimization strategies
+
+---
+
+## 30 City Implementation Plans
+
+**Category:** City-specific implementation plans and strategies
+
+### 30_leverkusen_implementation_plan.md
+**Purpose:** Implementation plan for Leverkusen city scraper
+**For:** Developers implementing new city scrapers based on Leverkusen pattern
+
+**Contents:**
+- URL structure and navigation
+- Data extraction strategy
+- Implementation timeline
+- Testing approach
+
+---
+
+## 40 Configuration & Integration
+
+**Category:** OpenCode configuration and MCP integration
+
+### 40_mcp_sqlite_setup.md
+**Purpose:** OpenCode MCP configuration for SQLite database access
+**For:** Developers using OpenCode to query the events database
+
+**Contents:**
+- MCP server configuration (read-only access)
+- Available database tools
+- Database schema reference
+- Usage examples (natural language queries, SQL queries, exports)
+- Global usage for other SQLite databases
+- Security and troubleshooting
+
+---
+
 ## 99 Historical Reference
 
 **Category:** Historical logs and error tracking
@@ -203,18 +264,51 @@ All documentation files follow a format: `{number}_{name}.md`
 
 ---
 
+## docs/autonomous/ Directory
+
+**Purpose:** Autonomous execution logs and investigation reports
+**For:** Debugging, understanding agent decisions, and tracking implementation history
+
+### Autonomous Logs (2x_*)
+Format: `2x_{city}_autonomous_{timestamp}.md`
+- Monheim: `2x_monheim_autonomous_2026-02-26T19:34:50.md`
+- Burscheid: `2x_burscheid_autonomous_2026-02-16T22:23:28.md`
+- Leichlingen: `2x_leichlingen_autonomous_2026-02-16T20:41:00.md`
+- Hitdorf: `2x_hitdorf_autonomous_2026-02-16T19:32:53.md`
+
+**Contents:**
+- Task info (URL, city name)
+- Pattern detected
+- Files created
+- Testing results
+- Issues encountered
+- Solutions applied
+
+### Investigation Reports (investigation_*)
+Format: `investigation_{city}.md`
+- `investigation_monheim.md`
+- `investigation_burscheid.md`
+
+**Contents:**
+- URL under investigation
+- HTML structure analysis
+- Data sources identified
+- Event card structure
+- Navigation patterns
+- Implementation recommendations
+
+---
+
 ## Reading Order
 
-If you're new to project:
+If you're new to the project:
 
-1. Start with **00_readme.md** - Quick start and basic usage
-2. Then **docs/00_url_setup_prompt.md** - For URL setup (provide full URL + city name)
-3. Then **01_setup_guide.md** - If you want to add new city scrapers with detailed guidance
-4. Then **01_agent_guide.md** - To understand how agents work in detail
-5. Refer to **11_architecture.md** - For deep system understanding
-6. Check **14_categories.md** - For category system reference
-7. Check **13_cron_setup.md** - For setting up automated daily scraping
-8. Check **99_agent_errors.md** - Only for debugging specific historical issues
+1. **README.md** (root) — Quick start and basic usage
+2. **docs/00_url_setup_prompt.md** — How to add new event sources (provide URL + city name)
+3. **docs/01_agent_guide.md** — How the scraper and analyzer agents work
+4. **docs/11_architecture.md** — Deep system architecture reference
+
+Everything else is reference material — consult as needed.
 
 ---
 
@@ -222,15 +316,17 @@ If you're new to project:
 
 | Task | File |
 |-------|--------|
-| Get started | 00_readme.md |
-| URL setup (user provides URL) | docs/00_url_setup_prompt.md |
-| Add new city (guided) | 01_setup_guide.md |
-| Understand agents | 01_agent_guide.md |
-| Understand system | 11_architecture.md |
-| Console output | 12_consoleprint.md |
-| Setup cron jobs | 13_cron_setup.md |
-| Category system | 14_categories.md |
-| Debug errors | 99_agent_errors.md |
+| Get started | README.md (root) |
+| Add new event source | docs/00_url_setup_prompt.md |
+| Add new city (detailed) | docs/01_setup_guide.md |
+| Understand agents | docs/01_agent_guide.md |
+| System architecture | docs/11_architecture.md |
+| Console output | docs/12_consoleprint.md |
+| Cron jobs | docs/13_cron_setup.md |
+| Category system | docs/14_categories.md |
+| MCP SQLite setup | docs/40_mcp_sqlite_setup.md |
+| Debug errors | docs/99_agent_errors.md |
+| Autonomous logs | docs/autonomous/ |
 
 ---
 
@@ -238,17 +334,27 @@ If you're new to project:
 
 ```
 WebScraper/
+├── README.md                   # Main entry point and quick start
 ├── docs/
-│   └── 00_url_setup_prompt.md  # URL setup prompt (user provides URL + city)
-├── 00_DOCUMENTATION_INDEX.md  # This file (documentation index)
-├── 00_readme.md            # Entry point and quick start
-├── 01_agent_guide.md        # Agent guide (scraper + analyzer)
-├── 01_setup_guide.md        # City scraper setup guide
-├── 11_architecture.md       # System architecture
-├── 12_consoleprint.md       # Console output documentation
-├── 13_cron_setup.md        # Cron job configuration
-├── 14_categories.md        # Category system documentation
-├── 99_agent_errors.md       # Historical error log
+│   ├── 00_DOCUMENTATION_INDEX.md  # This file (documentation index)
+│   ├── 00_url_setup_prompt.md     # URL setup prompt
+│   ├── 01_agent_guide.md          # Agent guide (scraper + analyzer)
+│   ├── 01_setup_guide.md          # City scraper setup guide
+│   ├── 11_architecture.md         # System architecture
+│   ├── 12_consoleprint.md         # Console output documentation
+│   ├── 13_cron_setup.md          # Cron job configuration
+│   ├── 14_categories.md          # Category system documentation
+│   ├── 20_rausgegangen_implementation.md  # Rausgegangen implementation
+│   ├── 30_leverkusen_implementation_plan.md  # Leverkusen implementation plan
+│   ├── 40_mcp_sqlite_setup.md            # MCP SQLite configuration
+│   ├── 99_agent_errors.md         # Historical error log
+│   └── autonomous/               # Autonomous execution logs
+│       ├── 2x_monheim_autonomous_2026-02-26T19:34:50.md
+│       ├── 2x_burscheid_autonomous_2026-02-16T22:23:28.md
+│       ├── 2x_leichlingen_autonomous_2026-02-16T20:41:00.md
+│       ├── 2x_hitdorf_autonomous_2026-02-16T19:32:53.md
+│       ├── investigation_monheim.md
+│       └── investigation_burscheid.md
 ├── config.py
 ├── main.py
 ├── pipeline.py

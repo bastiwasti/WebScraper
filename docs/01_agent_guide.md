@@ -109,7 +109,7 @@ Some scrapers support an additional "Level 2" scraping step that fetches event d
 - `Event` dataclass includes `event_url` and `raw_data` fields
 - `rules/__init__.py` automatically calls Level 2 scraping after regex extraction
 
-**See Also**: [90_ToDo_Scraper.md](90_ToDo_Scraper.md) - List of scrapers that need 2-level integration
+**See Also**: [01_setup_guide.md](01_setup_guide.md#2-level-scraping-implementation) - 2-Level scraping setup guide
 
 ### Registry Structure
 

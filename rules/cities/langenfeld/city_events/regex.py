@@ -72,6 +72,7 @@ class CityEventsRegex(BaseRule):
                 date_str = date_elem.get_text(strip=True) if date_elem else ""
                 location_name = location_name_elem.get_text(strip=True) if location_name_elem else ""
                 teaser = teaser_elem.get_text(strip=True) if teaser_elem else ""
+                time_str = card.get('data-sorttime', '')
                 
                 if not title:
                     continue
@@ -118,10 +119,10 @@ class CityEventsRegex(BaseRule):
 
                 event = Event(
                     name=title,
-                    description=description,
-                    location=location,
+                    description=teaser,
+                    location=location_name,
                     date=date_str,
-                    time=time_str,
+                    time=str(time_str) if time_str else "",
                     source=self.url,
                     category=category,
                     origin=self.get_origin(),

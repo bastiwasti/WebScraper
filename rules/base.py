@@ -284,7 +284,7 @@ class BaseRule(ABC):
                 time="",
                 source=self.url,
                 category="other",
-                origin="llm_fallback",
+                origin=self.get_origin(),
             )]
         except Exception as e:
             print(f"Warning: LLM fallback failed: {e}")

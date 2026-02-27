@@ -135,12 +135,14 @@ DB_PATH=data/events.db
 
 ### Supported Cities
 
-See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete list of supported cities and how to add new ones.
+See [docs/01_setup_guide.md](docs/01_setup_guide.md) for complete list of supported cities and how to add new ones.
 
-**Currently Supported**: monheim_am_rhein, langenfeld, leverkusen, hilden, dormagen, hitdorf, leichlingen, burscheid
+**Cities**: monheim_am_rhein, langenfeld, leverkusen, hilden, dormagen, hitdorf, leichlingen, burscheid
+
+**Aggregators**: eventim.de (public JSON API), rausgegangen.de (HTML scraping) — these run automatically alongside city scrapers
 
 **Advanced Features**:
-- **2-Level Scraping**: Monheim terminkalender, Langenfeld schauplatz, Leverkusen stadt_erleben, Leverkusen lust_auf, and Dormagen feste_veranstaltungen fetch event detail pages for enhanced data (see [90_ToDo_Scraper.md](90_ToDo_Scraper.md))
+- **2-Level Scraping**: Monheim terminkalender, Langenfeld schauplatz, Leverkusen stadt_erleben, Leverkusen lust_auf, and Dormagen feste_veranstaltungen fetch event detail pages for enhanced data
 ---
 
 ## Project Structure
@@ -148,10 +150,13 @@ See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete list of supported cities and h
 ```
 WebScraper/
 ├── README.md              # This file - quick start and usage
-├── AGENT_GUIDE.md       # How scraper & analyzer agents work
-├── SETUP_GUIDE.md        # How to add new city scrapers
-├── ARCHITECTURE.md        # System internals and data flow
-├── AGENT_ERRORS.md       # Historical error log (git history)
+├── docs/                  # Documentation directory
+│   ├── 00_DOCUMENTATION_INDEX.md  # Documentation index
+│   ├── 00_url_setup_prompt.md     # URL setup prompt
+│   ├── 01_agent_guide.md          # How scraper & analyzer agents work
+│   ├── 01_setup_guide.md           # How to add new city scrapers
+│   ├── 11_architecture.md         # System internals and data flow
+│   └── ...                         # See docs/00_DOCUMENTATION_INDEX.md
 ├── config.py              # Configuration and environment variables
 ├── main.py                # CLI entry point
 ├── pipeline.py            # Pipeline orchestration
@@ -181,9 +186,10 @@ WebScraper/
 
 ## Learn More
 
-- **[AGENT_GUIDE.md](AGENT_GUIDE.md)** - How both scraper & analyzer agents work, LLM integration
-- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Step-by-step guide to add new city scrapers with navigation
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture, data flow, agent communication
+- **[docs/01_agent_guide.md](docs/01_agent_guide.md)** - How both scraper & analyzer agents work, LLM integration
+- **[docs/01_setup_guide.md](docs/01_setup_guide.md)** - Step-by-step guide to add new city scrapers with navigation
+- **[docs/11_architecture.md](docs/11_architecture.md)** - System architecture, data flow, agent communication
+- **[docs/00_DOCUMENTATION_INDEX.md](docs/00_DOCUMENTATION_INDEX.md)** - Full documentation overview
 
 ## Database Schema
 

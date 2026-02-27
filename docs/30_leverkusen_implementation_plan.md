@@ -495,7 +495,7 @@ python3 main.py --url stadt_erleben --no-db --verbose
   - Time test: Should complete in <3 minutes
 
 - [ ] Update documentation
-  - Add Leverkusen to implementation reference table in 90_ToDo_Scraper.md
+  - Add Leverkusen to implementation reference table in 01_setup_guide.md
   - Document pagination approach (server-side, URL parameters)
   - Document advertising detection
   - Document fixed 10-page limit
@@ -550,7 +550,7 @@ python3 main.py --url stadt_erleben --no-db --verbose
 
 1. **`rules/cities/leverkusen/stadt_erleben/scraper.py`** (NEW)
 2. **`rules/cities/leverkusen/stadt_erleben/regex.py`** (COMPLETE REWRITE)
-3. **`90_ToDo_Scraper.md`** (UPDATE)
+3. **`01_setup_guide.md`** (UPDATE - add to patterns table)
 4. **`rules/cities/leverkusen/__init__.py`** (UPDATE - add folder name)
 
 ---
@@ -561,6 +561,6 @@ Once you confirm the plan, I'll:
 2. Create/rewrite regex.py with HTML-based parsing + Level 2
 3. Update scraper_agent.py for folder URL support
 4. Test the implementation
-5. Document in 90_ToDo_Scraper.md
+5. Update documentation
 
 Total estimated time: ~55 minutes

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source venv/bin/activate)",
+      "Bash(python main.py --agent scraper --cities hitdorf --no-db)",
+      "Bash(git status -u)",
+      "Bash(git add rules/cities/hitdorf/__init__.py rules/cities/hitdorf/kalender/__init__.py agents/scraper_agent.py 00_readme.md main.py)",
+      "Bash(git commit:*)",
+      "Bash(python -c \":*)",
+      "Bash(grep -n \"def normalize_date\" /home/vscode/projects/WebScraper/rules/*.py)",
+      "Bash(python3 -c \"from rules.aggregators.rausgegangen.scraper import RausgegangenScraper; print\\(hasattr\\(RausgegangenScraper, ''fetch_events_from_api''\\)\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(python3:*)",
+      "Bash(python main.py --url eventim/monheim_am_rhein --agent scraper --no-db -v)",
+      "Bash(for city in langenfeld leverkusen hilden dormagen hitdorf leichlingen burscheid)",
+      "Bash(do)",
+      "Bash(echo \"=== $city ===\")",
+      "Bash(done)",
+      "Bash(for city in monheim_am_rhein langenfeld leverkusen hilden dormagen hitdorf leichlingen burscheid)",
+      "Bash(wc -l /home/vscode/projects/WebScraper/docs/*.md /home/vscode/projects/WebScraper/docs/autonomous/*.md /home/vscode/projects/WebScraper/README.md)"
+    ]
+  }
+}

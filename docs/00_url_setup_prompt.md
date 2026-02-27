@@ -18,7 +18,7 @@ User provides:
 6. Register URL in `rules/urls.py`
 7. Test with `python3 main.py --url {url} --no-db --verbose`
 8. Fix issues with up to 3 self-correction attempts
-9. Create summary file: `2x_{city}_autonomous_{timestamp}.md` (ISO 8601 format)
+9. Create summary file: `docs/autonomous/2x_{city}_autonomous_{timestamp}.md` (ISO 8601 format)
 
 ## 7 Proven Patterns
 
