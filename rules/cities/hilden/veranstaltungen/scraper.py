@@ -20,22 +20,21 @@ class HildenScraper(BaseScraper):
         
         JSON API endpoint returns structured event data.
         Returns empty string if no events found.
-        Limits to first 50 events to avoid token overflow.
         """
         json_url = "https://www.hilden.de/de/kalender/veranstaltungen/jahre/events.json?weekends=false&tagMode=ANY"
         response = requests.get(json_url, timeout=30)
         response.raise_for_status()
+        return response.text
+
+    def fetch_raw_html(self) -> str:
+        """Fetch raw HTML content from main Hilden veranstaltungen page.
         
-        # Parse JSON
-        try:
-            events = json.loads(response.text)
-        except json.JSONDecodeError:
-            # Return raw JSON if parsing fails
-            return response.text
-        
-        # Limit to first 50 events
-        events = events[:50]
-        
-        # Don't format as text - return raw JSON for analyzer to parse
-        # This is needed for proper event extraction
+        Returns full HTML for potential use in Level 2 scraping.
+        """
+        response = requests.get(
+            self.url,
+            timeout=30,
+            headers={"User-Agent": "WeeklyMail/1.0"}
+        )
+        response.raise_for_status()
         return response.text

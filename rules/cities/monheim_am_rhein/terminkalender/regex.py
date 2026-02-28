@@ -311,6 +311,21 @@ class TerminkalenderRegex(BaseRule):
                 
                 if detail_data:
                     event.raw_data = detail_data
+                    
+                    # Update main event fields from Level 2 data
+                    if 'detail_description' in detail_data and detail_data['detail_description']:
+                        event.description = detail_data['detail_description']
+                    if 'detail_location' in detail_data and detail_data['detail_location']:
+                        event.location = detail_data['detail_location']
+                    if 'detail_date' in detail_data and detail_data['detail_date']:
+                        event.date = detail_data['detail_date']
+                    if 'detail_time' in detail_data and detail_data['detail_time']:
+                        event.time = detail_data['detail_time']
+                    if 'detail_end_time' in detail_data and detail_data['detail_end_time']:
+                        event.end_time = detail_data['detail_end_time']
+                    if 'detail_category' in detail_data and detail_data['detail_category']:
+                        event.category = detail_data['detail_category']
+                    
                     event.source = detail_url  # Use detail URL as source when Level 2 succeeds
                     print(f"  ✓ Fetched details for: {event.name[:50]}")
                 else:
