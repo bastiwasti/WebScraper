@@ -129,8 +129,13 @@ DEFAULT_LOCATION=Monheim 40789
 # Focus on family/children events
 FAMILY_FOCUS=true
 
-# Database path
-DB_PATH=data/events.db
+# PostgreSQL
+PG_HOST=localhost
+PG_PORT=5432
+PG_DATABASE=vmpostgres
+PG_USER=jobsearch
+PG_PASSWORD=jobsearch
+PG_SCHEMA=webscraper
 ```
 
 ### Supported Cities
@@ -160,7 +165,7 @@ WebScraper/
 ├── config.py              # Configuration and environment variables
 ├── main.py                # CLI entry point
 ├── pipeline.py            # Pipeline orchestration
-├── storage.py             # SQLite database operations
+├── storage.py             # PostgreSQL database operations
 ├── requirements.txt       # Python dependencies
 ├── agents/                # Agent implementations
 │   ├── __init__.py
@@ -176,8 +181,9 @@ WebScraper/
 │           ├── scraper.py
 │           ├── regex.py
 │           └── __init__.py
-├── data/                  # Database storage
-│   └── events.db          # SQLite database (created on run)
+├── scripts/               # Database scripts
+│   ├── init_postgres.sql  # Schema + permissions setup
+│   └── migrate_sqlite_to_postgres.py  # One-time migration
 ├── logs/                  # Timestamped log files
 └── .env                   # Environment configuration (not in git)
 ```
@@ -193,14 +199,16 @@ WebScraper/
 
 ## Database Schema
 
-The `data/events.db` SQLite database contains:
+Data is stored in PostgreSQL (`vmpostgres` database, `webscraper` schema):
 
 | Table | Purpose |
 |-------|---------|
 | `runs` | Pipeline run tracking (agent, location, timestamp) |
 | `events` | Structured event data (name, description, location, date, etc.) |
+| `events_distinct` | Deduplicated events (best row per name+start_datetime+origin) |
 | `raw_summaries` | Raw text from scraper (for debugging) |
 | `status` | Run status with metrics (duration, event counts) |
+| `locations` | Family-friendly places (Ausflüge feature) |
 
 ---
 
@@ -211,5 +219,5 @@ The `data/events.db` SQLite database contains:
 - **DuckDuckGo Search** - Web search
 - **Requests + BeautifulSoup** - HTTP and HTML parsing
 - **Playwright** - Dynamic content rendering
-- **SQLite** - Event storage
+- **PostgreSQL** - Event storage (shared with JobSearch project)
 - **Rich** - Terminal UI and progress bars

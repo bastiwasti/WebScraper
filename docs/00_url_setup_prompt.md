@@ -2,6 +2,26 @@
 
 Implement a new event scraper for the WebScraper codebase.
 
+## ⚠️ CRITICAL: DO NOT Use /tmp Directory
+
+**This will cause permission errors and stop the operation:**
+```
+! permission requested: external_directory (/tmp/*); auto-rejecting
+✗ bash failed
+```
+
+**Instead of `/tmp`, use:**
+- Python variables in memory
+- Project `data/` directory: `Path(__file__).parent.parent.parent / "data"`
+- Direct Python operations instead of grep/curl on /tmp files
+
+**Examples:**
+- ❌ `curl -o /tmp/file.html` → ✅ `html = requests.get(url).text`
+- ❌ `grep pattern /tmp/file` → ✅ `re.findall(r'pattern', html)`
+- ❌ `python -c "open('/tmp/file', 'w')"` → ✅ `Path('data/file').write_text(content)`
+
+**All investigation steps below must follow this rule.**
+
 ## Input
 
 User provides:
@@ -81,6 +101,51 @@ The Hitdorf kalender site appeared to have pagination:
 
 **Before implementing ANY scraper code, you MUST thoroughly investigate the HTML/API structure.**
 
+### ⚠️ IMPORTANT: Avoid /tmp Directory Access
+
+**DO NOT use `/tmp/` for any operations.** Accessing `/tmp/*` will cause permission errors:
+
+```
+! permission requested: external_directory (/tmp/*); auto-rejecting
+✗ bash failed
+```
+
+**Instead, use these alternatives:**
+
+1. **Use Python variables instead of file I/O:**
+   ```python
+   # WRONG: Save to /tmp
+   # curl -o /tmp/{city}_raw.html "{url}"
+
+   # CORRECT: Keep in memory
+   import requests
+   html = requests.get("{url}").text
+   ```
+
+2. **Use project data directory:**
+   ```python
+   from pathlib import Path
+   data_dir = Path(__file__).parent.parent.parent / "data"
+   html_file = data_dir / "{city}_raw.html"
+   html_file.write_text(requests.get("{url}").text)
+   ```
+
+3. **Use webfetch tool (if available):**
+   ```python
+   # Use webfetch to get content directly
+   html = webfetch("{url}")
+   ```
+
+4. **Direct Python operations instead of grep:**
+   ```python
+   # WRONG: grep /tmp/{city}_raw.html
+   # CORRECT: Use Python string methods
+   import re
+   matches = re.findall(r"event|termin|karte", html)
+   ```
+
+**All investigation steps below must use these alternatives to avoid `/tmp` access.**
+
 ### Why Investigation is Mandatory
 
 Many websites have hidden data sources that are not immediately visible:
@@ -96,44 +161,82 @@ Skipping investigation leads to:
 
 ### Investigation Steps
 
-#### Step 1: Fetch and Save Raw Content
+#### Step 1: Fetch and Analyze Raw Content
 
-```bash
-# Fetch the URL and save to file for analysis
-curl -o /tmp/{city}_raw.html "{target_url}"
+```python
+# Fetch URL content in memory (NO /tmp access)
+import requests
+from pathlib import Path
 
-# Or use Python to fetch
-python3 -c "import requests; r = requests.get('{target_url}'); open('/tmp/{city}_raw.html', 'w').write(r.text)"
+url = "{target_url}"
+html = requests.get(url, timeout=30).text
+
+# Option: Save to project data directory (if needed for analysis)
+data_dir = Path(__file__).parent.parent.parent / "data"
+html_file = data_dir / "{city}_raw.html"
+html_file.parent.mkdir(exist_ok=True)
+html_file.write_text(html)
 ```
 
 #### Step 2: Identify ALL Data Sources
 
-Search the saved HTML for:
+Search the HTML using Python (NOT grep on /tmp files):
 
 **a) Event Card Structure:**
-```bash
-grep -A 20 "event\|termin\|karte" /tmp/{city}_raw.html | head -50
+```python
+import re
+
+# Find event-related elements
+event_cards = re.findall(r'<(?:article|div)[^>]*(?:event|termin|karte)[^>]*>', html, re.IGNORECASE)
+print(f"Found {len(event_cards)} event card elements")
+
+# Show first 3 cards
+for card in event_cards[:3]:
+    print(card[:200])
 ```
 - What HTML elements contain event data?
 - Are there nested structures (cards within containers)?
 
 **b) Hidden/Expansion Sections:**
-```bash
-grep -iE "mehr.*info|show.*more|expand|aufklapp" /tmp/{city}_raw.html | head -20
+```python
+# Look for "Mehr Infos", "Show More" buttons
+expand_buttons = re.findall(r'<[^>]*(?:mehr.*info|show.*more|expand|aufklapp|load.?more)[^>]*>', html, re.IGNORECASE)
+print(f"Found {len(expand_buttons)} expansion buttons")
+
+# Look for hidden divs
+hidden_divs = re.findall(r'<(?:div|section)[^>]*(?:display\s*:\s*none|hidden)[^>]*>', html, re.IGNORECASE)
+print(f"Found {len(hidden_divs)} hidden elements")
+
+# Look for ID mapping patterns (e.g., a{event_id} -> termin{event_id})
+id_patterns = re.findall(r'(?:id\s*=\s*["\'])([^"\']+)', html, re.IGNORECASE)
+print(f"Found {len(set(id_patterns))} unique IDs")
 ```
 - Look for: "mehr Infos", "Show More", "Load More", "aufklappen"
 - Are there hidden divs (`display:none`, `hidden`)?
 
 **c) API Parameters:**
-```bash
-grep -oE 'what=|page=|limit=|count=' /tmp/{city}_raw.html | sort -u
+```python
+# Find API parameters in URLs
+api_params = set(re.findall(r'(?:what|page|limit|count|offset|max)\s*=\s*[^&"\'>]+', html, re.IGNORECASE))
+print(f"API parameters found: {api_params}")
+
+# Find API endpoints
+api_endpoints = re.findall(r'(?:api|endpoint|fetch)\s*[:=]\s*["\']([^"\']+\.?(?:json|php|aspx|api))["\']', html, re.IGNORECASE)
+for endpoint in set(api_endpoints):
+    print(f"API endpoint: {endpoint}")
 ```
 - What parameters control data loading?
 - Are there pagination parameters?
 
 **d) JavaScript Loading:**
-```bash
-grep -iE "javascript|ajax|fetch|load" /tmp/{city}_raw.html | head -20
+```python
+# Check for JavaScript data loading
+js_loading = re.findall(r'(?:javascript|ajax|fetch|load|xhr)[^"\'>]+', html, re.IGNORECASE)
+print(f"JavaScript patterns found: {len(set(js_loading))}")
+
+# Look for JSON data embedded in script tags
+json_data = re.findall(r'<script[^>]*type\s*=\s*["\']application/json["\'][^>]*>(.*?)</script>', html, re.DOTALL)
+print(f"Embedded JSON blocks: {len(json_data)}")
 ```
 - Does the page load data via JavaScript?
 - Are there API endpoints in the JavaScript?
@@ -247,6 +350,10 @@ Create analysis file: `investigation_{city}.md` containing:
 **This analysis file MUST be completed BEFORE writing any scraper code.**
 
 ### Common Mistakes to Avoid
+
+❌ **Using /tmp directory**: Operations that require `/tmp/*` access will fail with permission errors
+- **Fix**: Use Python variables in memory or project `data/` directory
+- Example: `html = requests.get(url).text` instead of `curl -o /tmp/file.html`
 
 ❌ **Not searching for hidden content**: Assuming all data is visible in event cards
 - **Fix**: Always search for "mehr Infos", "Show More", `display:none` elements
@@ -401,14 +508,18 @@ If any step fails:
    - Database connection errors: Check config.py database settings
    - No events extracted: Check regex patterns in regex.py
    - Duplicate events: Verify pagination (page 1 ≠ page 2)
-   - **Missing descriptions / incomplete data:**
-     **Symptoms**: Events only have titles, no descriptions or locations
-     **Cause**: Did not investigate HTML structure for hidden data sources ("mehr Infos", "Show More", hidden divs)
-     **Fix**: 
-       1. Return to Phase 2: Investigation
-       2. Search for hidden data sources: `grep -iE "mehr.*info|show.*more|expand" /tmp/{city}_raw.html`
-       3. Find ID mapping patterns: Look for button IDs matching hidden div IDs (e.g., `a{event_id}` → `termin{event_id}`)
-       4. Re-extract with updated logic to capture hidden descriptions
+    - **Missing descriptions / incomplete data:**
+      **Symptoms**: Events only have titles, no descriptions or locations
+      **Cause**: Did not investigate HTML structure for hidden data sources ("mehr Infos", "Show More", hidden divs)
+      **Fix**:
+        1. Return to Phase 2: Investigation
+        2. Search for hidden data sources using Python (NOT grep on /tmp):
+           ```python
+           expand_buttons = re.findall(r'<[^>]*(?:mehr.*info|show.*more|expand|aufklapp)[^>]*>', html, re.IGNORECASE)
+           hidden_divs = re.findall(r'<(?:div|section)[^>]*(?:display\s*:\s*none|hidden)[^>]*>', html, re.IGNORECASE)
+           ```
+        3. Find ID mapping patterns: Look for button IDs matching hidden div IDs (e.g., `a{event_id}` → `termin{event_id}`)
+        4. Re-extract with updated logic to capture hidden descriptions
    - Timeout errors: Increase timeout in detail page requests
 
 3. **Debug steps:**

@@ -48,7 +48,7 @@ def main() -> None:
     parser.add_argument(
         "--no-db",
         action="store_true",
-        help="Do not save events to the SQLite database.",
+        help="Do not save events to the database.",
     )
     parser.add_argument(
         "--model",
@@ -289,9 +289,9 @@ def main() -> None:
         print(f"\nFound {len(structured_events)} events.")
         
         if not args.no_db and structured_events:
-            from config import DB_PATH
             insert_events(structured_events, new_run_id)
-            print(f"Events saved to DB: {DB_PATH}")
+            from config import PG_DATABASE, PG_SCHEMA
+            print(f"Events saved to PostgreSQL: {PG_DATABASE}/{PG_SCHEMA}")
             print(f"Analyzer run ID: {new_run_id}")
             print(f"Re-analyzed from scraper run: {run_id_to_analyze}")
         
@@ -321,8 +321,8 @@ def main() -> None:
         print(f"\nFound {len(structured_events)} events.")
 
         if not args.no_db and structured_events:
-            from config import DB_PATH
-            print(f"Events saved to DB: {DB_PATH}")
+            from config import PG_DATABASE, PG_SCHEMA
+            print(f"Events saved to PostgreSQL: {PG_DATABASE}/{PG_SCHEMA}")
 
     else:
         from agents import ScraperAgent, AnalyzerAgent
@@ -356,8 +356,8 @@ def main() -> None:
                     cities=args.cities,
                     search_queries=args.search_queries,
                 )
-                from config import DB_PATH
-                print(f"\nRaw summary saved to DB: {DB_PATH} (Run ID: {run_id}, Summary ID: {summary_id})")
+                from config import PG_DATABASE, PG_SCHEMA
+                print(f"\nRaw summary saved to PostgreSQL: {PG_DATABASE}/{PG_SCHEMA} (Run ID: {run_id}, Summary ID: {summary_id})")
 
         elif args.agent == "analyzer":
             analyzer = AnalyzerAgent(model=args.model)
@@ -368,8 +368,8 @@ def main() -> None:
             print(structured_events)
 
             if not args.no_db and structured_events:
-                from config import DB_PATH
-                print(f"Events saved to DB: {DB_PATH}")
+                from config import PG_DATABASE, PG_SCHEMA
+                print(f"Events saved to PostgreSQL: {PG_DATABASE}/{PG_SCHEMA}")
 
 
 if __name__ == "__main__":

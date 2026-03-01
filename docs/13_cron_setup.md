@@ -16,7 +16,7 @@ Cron job successfully installed and configured for daily automatic scraping.
 ### Scope
 - **Cities:** All (monheim, langenfeld, leverkusen, hilden, dormagen)
 - **Agents:** Both scraper and analyzer
-- **Database:** Events saved to SQLite
+- **Database:** Events saved to PostgreSQL (vmpostgres, webscraper schema)
 - **Logging:** Daily log files with rotation
 
 ---

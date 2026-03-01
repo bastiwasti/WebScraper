@@ -1,34 +1,24 @@
-"""SQLite storage for the locations/Ausflüge feature.
+"""PostgreSQL storage for the locations/Ausflüge feature.
 
-Uses the same events.db database so the MCP server can query locations
-without any configuration changes.
+Uses the same webscraper schema in the shared Postgres database.
 """
 
-import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from config import DB_PATH
+from storage import get_connection, _execute
 from locations.models import Location
 
 
-def _get_connection() -> sqlite3.Connection:
-    from pathlib import Path
-    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_locations_db(conn: sqlite3.Connection | None = None) -> None:
+def init_locations_db(conn=None) -> None:
     """Create the locations table if it does not exist."""
     own_conn = conn is None
     if own_conn:
-        conn = _get_connection()
+        conn = get_connection()
     try:
-        conn.execute("""
+        _execute(conn, """
             CREATE TABLE IF NOT EXISTS locations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT,
                 address TEXT,
@@ -52,39 +42,39 @@ def init_locations_db(conn: sqlite3.Connection | None = None) -> None:
                 updated_at TEXT NOT NULL
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_locations_category ON locations(category)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_locations_city ON locations(city)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_locations_distance ON locations(distance_km)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_locations_source ON locations(source)")
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_source_id ON locations(source, source_id)")
+        _execute(conn, "CREATE INDEX IF NOT EXISTS idx_locations_category ON locations(category)")
+        _execute(conn, "CREATE INDEX IF NOT EXISTS idx_locations_city ON locations(city)")
+        _execute(conn, "CREATE INDEX IF NOT EXISTS idx_locations_distance ON locations(distance_km)")
+        _execute(conn, "CREATE INDEX IF NOT EXISTS idx_locations_source ON locations(source)")
+        _execute(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_source_id ON locations(source, source_id)")
         conn.commit()
     finally:
         if own_conn:
             conn.close()
 
 
-def upsert_location(loc: Location, conn: sqlite3.Connection | None = None) -> int:
+def upsert_location(loc: Location, conn=None) -> int:
     """Insert or update a location by source + source_id. Returns the row id."""
     own_conn = conn is None
     if own_conn:
-        conn = _get_connection()
+        conn = get_connection()
     try:
         now = datetime.now().isoformat()
         # Try update first if source_id exists
         if loc.source_id:
-            cur = conn.execute(
-                "SELECT id FROM locations WHERE source = ? AND source_id = ?",
+            cur = _execute(conn,
+                "SELECT id FROM locations WHERE source = %s AND source_id = %s",
                 (loc.source, loc.source_id),
             )
             existing = cur.fetchone()
             if existing:
-                conn.execute("""
+                _execute(conn, """
                     UPDATE locations SET
-                        name=?, description=?, address=?, city=?, postal_code=?,
-                        latitude=?, longitude=?, category=?, subcategory=?,
-                        opening_hours=?, opening_hours_json=?, website_url=?, phone=?,
-                        rating=?, distance_km=?, updated_at=?
-                    WHERE id=?
+                        name=%s, description=%s, address=%s, city=%s, postal_code=%s,
+                        latitude=%s, longitude=%s, category=%s, subcategory=%s,
+                        opening_hours=%s, opening_hours_json=%s, website_url=%s, phone=%s,
+                        rating=%s, distance_km=%s, updated_at=%s
+                    WHERE id=%s
                 """, (
                     loc.name, loc.description, loc.address, loc.city, loc.postal_code,
                     loc.latitude, loc.longitude, loc.category, loc.subcategory,
@@ -95,14 +85,15 @@ def upsert_location(loc: Location, conn: sqlite3.Connection | None = None) -> in
                 return existing["id"]
 
         # Insert new
-        cur = conn.execute("""
+        cur = _execute(conn, """
             INSERT INTO locations (
                 name, description, address, city, postal_code,
                 latitude, longitude, category, subcategory,
                 opening_hours, opening_hours_json, website_url, phone,
                 rating, source, source_id, distance_km,
                 url_status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unchecked', ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'unchecked', %s, %s)
+            RETURNING id
         """, (
             loc.name, loc.description, loc.address, loc.city, loc.postal_code,
             loc.latitude, loc.longitude, loc.category, loc.subcategory,
@@ -110,8 +101,9 @@ def upsert_location(loc: Location, conn: sqlite3.Connection | None = None) -> in
             loc.rating, loc.source, loc.source_id, loc.distance_km,
             now, now,
         ))
+        row = cur.fetchone()
         conn.commit()
-        return cur.lastrowid
+        return row["id"] if row else 0
     finally:
         if own_conn:
             conn.close()
@@ -119,7 +111,7 @@ def upsert_location(loc: Location, conn: sqlite3.Connection | None = None) -> in
 
 def upsert_locations(locations: list[Location]) -> int:
     """Bulk upsert locations. Returns count of inserted/updated rows."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
         init_locations_db(conn)
         count = 0
@@ -137,21 +129,21 @@ def get_locations(
     max_distance_km: Optional[float] = None,
 ) -> list[dict]:
     """Query locations with optional filters."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
         query = "SELECT * FROM locations WHERE 1=1"
         params = []
         if category:
-            query += " AND category = ?"
+            query += " AND category = %s"
             params.append(category)
         if city:
-            query += " AND city = ?"
+            query += " AND city = %s"
             params.append(city)
         if max_distance_km is not None:
-            query += " AND distance_km <= ?"
+            query += " AND distance_km <= %s"
             params.append(max_distance_km)
         query += " ORDER BY category, distance_km"
-        cur = conn.execute(query, params)
+        cur = _execute(conn, query, params)
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
@@ -159,9 +151,9 @@ def get_locations(
 
 def get_locations_with_urls() -> list[dict]:
     """Get all locations that have a website_url (for health checking)."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
-        cur = conn.execute(
+        cur = _execute(conn,
             "SELECT id, name, website_url, url_status FROM locations "
             "WHERE website_url IS NOT NULL AND website_url != ''"
         )
@@ -177,11 +169,11 @@ def update_location_rating(
     google_maps_url: str = "",
 ) -> None:
     """Update a location's rating from Google Places enrichment."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
         now = datetime.now().isoformat()
-        conn.execute(
-            "UPDATE locations SET rating = ?, updated_at = ? WHERE id = ?",
+        _execute(conn,
+            "UPDATE locations SET rating = %s, updated_at = %s WHERE id = %s",
             (rating, now, location_id),
         )
         conn.commit()
@@ -191,10 +183,10 @@ def update_location_rating(
 
 def update_url_status(location_id: int, status: str) -> None:
     """Update the URL health status for a location."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
-        conn.execute(
-            "UPDATE locations SET url_status = ?, url_last_checked = ?, updated_at = ? WHERE id = ?",
+        _execute(conn,
+            "UPDATE locations SET url_status = %s, url_last_checked = %s, updated_at = %s WHERE id = %s",
             (status, datetime.now().isoformat(), datetime.now().isoformat(), location_id),
         )
         conn.commit()
@@ -204,9 +196,9 @@ def update_url_status(location_id: int, status: str) -> None:
 
 def get_location_stats() -> list[dict]:
     """Get location counts grouped by category and city."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
-        cur = conn.execute("""
+        cur = _execute(conn, """
             SELECT category, city, COUNT(*) as count
             FROM locations
             GROUP BY category, city
@@ -219,18 +211,22 @@ def get_location_stats() -> list[dict]:
 
 def get_location_summary() -> dict:
     """Get a high-level summary of all locations."""
-    conn = _get_connection()
+    conn = get_connection()
     try:
-        total = conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0]
-        by_category = conn.execute(
+        cur = _execute(conn, "SELECT COUNT(*) AS total FROM locations")
+        total = cur.fetchone()["total"]
+        cur = _execute(conn,
             "SELECT category, COUNT(*) as count FROM locations GROUP BY category ORDER BY count DESC"
-        ).fetchall()
-        by_source = conn.execute(
+        )
+        by_category = cur.fetchall()
+        cur = _execute(conn,
             "SELECT source, COUNT(*) as count FROM locations GROUP BY source ORDER BY count DESC"
-        ).fetchall()
-        url_broken = conn.execute(
-            "SELECT COUNT(*) FROM locations WHERE url_status = 'broken'"
-        ).fetchone()[0]
+        )
+        by_source = cur.fetchall()
+        cur = _execute(conn,
+            "SELECT COUNT(*) AS cnt FROM locations WHERE url_status = 'broken'"
+        )
+        url_broken = cur.fetchone()["cnt"]
         return {
             "total": total,
             "by_category": {row["category"]: row["count"] for row in by_category},

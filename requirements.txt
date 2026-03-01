@@ -11,5 +11,8 @@ playwright>=1.40.0
 # Rich terminal UI
 rich>=13.0.0
 
+# Database
+psycopg2-binary>=2.9
+
 # Config
 python-dotenv>=1.0.0

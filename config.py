@@ -23,9 +23,17 @@ DEFAULT_LOCATION = os.getenv("DEFAULT_LOCATION", "Monheim 40789")
 # Focus on family- and children-friendly events
 FAMILY_FOCUS = os.getenv("FAMILY_FOCUS", "true").lower() in ("1", "true", "yes")
 
-# SQLite DB for storing scraped events (for automation and next agents)
+# PostgreSQL connection (shared with JobSearch project)
+PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_PORT = int(os.getenv("PG_PORT", "5432"))
+PG_DATABASE = os.getenv("PG_DATABASE", "vmpostgres")
+PG_USER = os.getenv("PG_USER", "webscraper")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "webscraper")
+PG_SCHEMA = os.getenv("PG_SCHEMA", "webscraper")
+
+# Legacy SQLite path (used by migration script only)
 _data_dir = Path(__file__).resolve().parent / "data"
-DB_PATH = os.getenv("DB_PATH", str(_data_dir / "events.db"))
+SQLITE_DB_PATH = str(_data_dir / "events.db")
 
 # Locations/Ausflüge feature — center point and radius
 MONHEIM_LAT = 51.0917

@@ -19,7 +19,7 @@ All documentation files follow a format: `{number}_{name}.md`
 | 14_ | 14 | Data models & systems | 14_categories.md |
 | 20_ | 20 | Implementation notes | 20_rausgegangen_implementation.md |
 | 30_ | 30 | City implementation plans | 30_leverkusen_implementation_plan.md |
-| 40_ | 40 | Configuration & Integration | 40_mcp_sqlite_setup.md |
+| 40_ | 40 | Configuration & Integration | 40_mcp_postgres_setup.md |
 | 50_ | 50 | Standalone Features | 50_locations_feature.md |
 | 99_ | 99 | Historical reference | 99_agent_errors.md |
 
@@ -232,16 +232,16 @@ All documentation files follow a format: `{number}_{name}.md`
 
 **Category:** OpenCode configuration and MCP integration
 
-### 40_mcp_sqlite_setup.md
-**Purpose:** OpenCode MCP configuration for SQLite database access
-**For:** Developers using OpenCode to query the events database
+### 40_mcp_postgres_setup.md
+**Purpose:** MCP configuration for PostgreSQL database access (Claude Code + OpenCode)
+**For:** Developers using AI tools to query the events database
 
 **Contents:**
-- MCP server configuration (read-only access)
+- MCP server configuration (PostgreSQL, webscraper schema)
 - Available database tools
 - Database schema reference
 - Usage examples (natural language queries, SQL queries, exports)
-- Global usage for other SQLite databases
+- Multi-project setup (webscraper + jobsearch schemas)
 - Security and troubleshooting
 
 ---
@@ -347,7 +347,7 @@ Everything else is reference material — consult as needed.
 | Console output | docs/12_consoleprint.md |
 | Cron jobs | docs/13_cron_setup.md |
 | Category system | docs/14_categories.md |
-| MCP SQLite setup | docs/40_mcp_sqlite_setup.md |
+| MCP Postgres setup | docs/40_mcp_postgres_setup.md |
 | Locations feature | docs/50_locations_feature.md |
 | Debug errors | docs/99_agent_errors.md |
 | Autonomous logs | docs/autonomous/ |
@@ -370,7 +370,7 @@ WebScraper/
 │   ├── 14_categories.md          # Category system documentation
 │   ├── 20_rausgegangen_implementation.md  # Rausgegangen implementation
 │   ├── 30_leverkusen_implementation_plan.md  # Leverkusen implementation plan
-│   ├── 40_mcp_sqlite_setup.md            # MCP SQLite configuration
+│   ├── 40_mcp_postgres_setup.md          # MCP PostgreSQL configuration
 │   ├── 50_locations_feature.md           # Locations/Ausflüge feature
 │   ├── 99_agent_errors.md         # Historical error log
 │   └── autonomous/               # Autonomous execution logs
@@ -388,6 +388,6 @@ WebScraper/
 ├── agents/                 # Agent implementations
 ├── rules/                  # URL rules and scrapers
 │   └── cities/            # City-specific scrapers
-├── data/                  # Database storage
+├── scripts/               # Database scripts
 └── logs/                  # Timestamped logs
 ```

@@ -502,11 +502,12 @@ print(result)
 # View recent runs
 python main.py --list-runs
 
-# Query events
-sqlite3 data/events.db "SELECT * FROM events ORDER BY id DESC LIMIT 10"
+# Query events via psql
+psql -h localhost -U jobsearch -d vmpostgres -c "SET search_path TO webscraper; SELECT * FROM events ORDER BY id DESC LIMIT 10;"
 
 # Check validation stats
-sqlite3 data/events.db "
+psql -h localhost -U jobsearch -d vmpostgres -c "
+SET search_path TO webscraper;
 SELECT
     r.id,
     r.agent,
@@ -515,7 +516,7 @@ SELECT
 FROM runs r
 JOIN status s ON s.run_id = r.id
 ORDER BY r.id DESC
-LIMIT 5"
+LIMIT 5;"
 ```
 
 #### Analyzer Common Issues

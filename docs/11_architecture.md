@@ -21,7 +21,7 @@ WebScraper is a two-agent LLM-powered pipeline for discovering and structuring l
 ```
 ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
 │   CLI Entry     │─────▶│   Pipeline      │─────▶│   Storage       │
-│   (main.py)     │      │   Orchestrator  │      │   (SQLite)      │
+│   (main.py)     │      │   Orchestrator  │      │  (PostgreSQL)   │
 └─────────────────┘      └─────────────────┘      └─────────────────┘
                                 │
             ┌───────────────────┼───────────────────┐
@@ -47,7 +47,7 @@ WebScraper is a two-agent LLM-powered pipeline for discovering and structuring l
 | **Scraper Agent** | Fetches and summarizes event sources | `agents/scraper_agent.py` |
 | **Analyzer Agent** | Extracts structured event data | `agents/analyzer_agent.py` |
 | **URL Rules System** | Maps URLs to scrapers/parsers | `rules/registry.py` |
-| **Storage Layer** | SQLite database operations | `storage.py` |
+| **Storage Layer** | PostgreSQL database operations | `storage.py` |
 | **LLM Provider** | DeepSeek integration | `config.py` |
 
 ---
@@ -319,22 +319,22 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER | Primary key |
+| `id` | SERIAL | Primary key |
 | `agent` | TEXT | Agent type (comma-separated: "scraper, analyzer") |
 | `cities` | TEXT | Cities scraped (comma-separated) |
-| `created_at` | TEXT | ISO timestamp |
+| `created_at` | TIMESTAMP | ISO timestamp |
 | `raw_summary_id` | INTEGER | FK to raw_summaries (analyzer only) |
 
 #### `status` - Run status metrics
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER | Primary key |
+| `id` | SERIAL | Primary key |
 | `run_id` | INTEGER | FK to runs |
 | `linked_run_id` | INTEGER | FK to related run (analyzer → scraper) |
 | `urls` | TEXT | JSON array of URLs scraped |
-| `start_time` | TEXT | ISO timestamp |
-| `end_time` | TEXT | ISO timestamp |
+| `start_time` | TIMESTAMP | ISO timestamp |
+| `end_time` | TIMESTAMP | ISO timestamp |
 | `duration` | REAL | Duration in seconds |
 | `events_found` | INTEGER | Total events extracted |
 | `valid_events` | INTEGER | Events with required fields |
@@ -343,7 +343,7 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER | Primary key |
+| `id` | SERIAL | Primary key |
 | `run_id` | INTEGER | FK to runs (analyzer) |
 | `name` | TEXT | Event title |
 | `description` | TEXT | Event description |
@@ -352,14 +352,22 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 | `time` | TEXT | Event time |
 | `category` | TEXT | Event category |
 | `source` | TEXT | Source URL/site |
-| `created_at` | TEXT | ISO timestamp |
+| `created_at` | TIMESTAMP | ISO timestamp |
 | `origin` | TEXT | Data origin identifier (e.g., "leverkusen_lust_auf") |
+
+#### `events_distinct` - Deduplicated events
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | SERIAL | Primary key |
+| Inherits all columns from `events` | | Best row per (name, start_datetime, origin) |
+| `rating` | INTEGER | Manual event rating |
 
 #### `raw_summaries` - Scraper output for debugging
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER | Primary key |
+| `id` | SERIAL | Primary key |
 | `run_id` | INTEGER | FK to runs (scraper) |
 | `location` | TEXT | Location for summary |
 | `max_search` | INTEGER | Max search results |
@@ -367,7 +375,7 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 | `cities` | TEXT | JSON array of cities |
 | `search_queries` | TEXT | JSON array of queries |
 | `raw_summary` | TEXT | Raw event text |
-| `created_at` | TEXT | ISO timestamp |
+| `created_at` | TIMESTAMP | ISO timestamp |
 
 ### Relationships
 
@@ -393,7 +401,7 @@ WebScraper/
 ├── config.py              # Configuration and LLM setup
 ├── main.py                # CLI entry point
 ├── pipeline.py            # Pipeline orchestration
-├── storage.py             # SQLite operations
+├── storage.py             # PostgreSQL operations
 ├── requirements.txt       # Dependencies
 │
 ├── agents/                # Agent implementations
@@ -425,8 +433,9 @@ WebScraper/
 │           ├── scraper.py
 │           └── regex.py
 │
-├── data/                  # Database storage
-│   └── events.db          # SQLite database (created on run)
+├── scripts/               # Database scripts
+│   ├── init_postgres.sql  # Schema + permissions setup
+│   └── migrate_sqlite_to_postgres.py  # One-time migration
 │
 └── logs/                  # Timestamped logs
     └── scrape_*.log

@@ -142,7 +142,12 @@ def run_pipeline(
     # Track pipeline end time
     end_time = datetime.utcnow().isoformat() + "Z"
     update_run_status_complete(run_id, end_time=end_time)
-    
+
+    # Rebuild deduplicated events table (stable IDs for ratings/ML)
+    if save_to_db:
+        from storage import rebuild_events_distinct
+        rebuild_events_distinct()
+
     # Print summary
     print(f"\nPipeline complete:")
     print(f"  URLs processed: {len(url_metrics)}")

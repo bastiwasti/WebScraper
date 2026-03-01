@@ -8,7 +8,7 @@ Family-friendly locations (Ausflugsziele) within 30km of Monheim am Rhein, curat
 - **What:** Playgrounds, museums, parks, gardens, pools, zoos, indoor playgrounds, sport venues, family restaurants
 - **Where:** 30km radius around Monheim am Rhein (51.0917, 6.8873)
 - **How:** OpenStreetMap Overpass API (free) + Google Places API (ratings, restaurants, all categories)
-- **Storage:** Same `data/events.db` database, separate `locations` table
+- **Storage:** PostgreSQL `vmpostgres` database, `webscraper` schema, `locations` table
 - **Independence:** Locations never run as part of the events pipeline
 
 ## CLI Commands
@@ -137,7 +137,7 @@ This will:
 
 ```sql
 CREATE TABLE locations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
     address TEXT,
@@ -164,7 +164,7 @@ CREATE TABLE locations (
 
 ## MCP Queries
 
-The `locations` table lives in the same `data/events.db` database, so MCP queries work immediately:
+The `locations` table lives in the same `webscraper` schema in PostgreSQL, so MCP queries work immediately:
 
 ```sql
 -- Nearby museums

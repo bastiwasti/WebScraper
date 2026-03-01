@@ -43,6 +43,7 @@ class HildenRegex(BaseRule):
             List of Event objects.
         """
         import json
+        import re
         
         try:
             events_data = json.loads(raw_content)
@@ -52,11 +53,13 @@ class HildenRegex(BaseRule):
             return []
 
         events = []
+        events_with_detail_pages = 0
         
         for event_data in events_data:
             try:
                 # Extract fields from JSON
                 title = event_data.get('title', '')
+                event_id = event_data.get('id', '')
                 
                 # Parse ISO 8601 datetime (e.g., "2025-02-20T13:00")
                 start_str = event_data.get('start', '')
@@ -103,14 +106,23 @@ class HildenRegex(BaseRule):
                 if website and website.startswith('/'):
                     website = f"https://www.hilden.de{website}"
                 
-                # Build source URL (prefer website, fallback to main calendar)
-                source = website if website else self.url
+                # Construct detail page URL from imageSrc if available
+                image_src = event_data.get('imageSrc', '')
+                detail_url = ''
+                if image_src and 'jahre/' in image_src:
+                    # Extract base path: /de/kalender/veranstaltungen/jahre/2026/02/2026-02-28-mittelalterlicher-wintermarkt
+                    base_path = re.sub(r'/[^/]+\.\w+$', '', image_src)
+                    detail_url = f"https://www.hilden.de{base_path}/{event_id}"
+                    events_with_detail_pages += 1
+                
+                # Build source URL (prefer detail page, then website, then main calendar)
+                source = detail_url if detail_url else (website if website else self.url)
                 
                 # Build improved description
                 desc_parts = []
                 desc_parts.append(title)
-                if category:
-                    desc_parts.append(f"Kategorie: {category}")
+                if category_raw:
+                    desc_parts.append(f"Kategorie: {category_raw}")
                 if tags_str:
                     desc_parts.append(f"Tags: {tags_str}")
                 description = ' | '.join(desc_parts)
@@ -125,7 +137,8 @@ class HildenRegex(BaseRule):
                     end_time=end_time_str,
                     source=source,
                     category=category,
-                    event_url=website,
+                    event_url=detail_url,
+                    city="hilden",
                     origin=self.get_origin(),
                 )
                 events.append(event)
@@ -134,95 +147,13 @@ class HildenRegex(BaseRule):
                 print(f"[Hilden] Error parsing event {event_data.get('title', 'unknown')}: {e}")
                 continue
         
-        print(f"[Hilden] Successfully parsed {len(events)} events")
+        print(f"[Hilden] Successfully parsed {len(events)} events, {events_with_detail_pages} have detail pages")
         return events
 
-    def parse_website_page(self, website_html: str, website_url: str) -> Optional[dict]:
-        """Parse external website page for event details.
-        
-        Args:
-            website_html: HTML content of external website.
-            website_url: URL of the website.
-        
-        Returns:
-            Dictionary with extracted details (detail_description, detail_location, etc.), or None if no details found.
-        """
-        detail_data = {}
-        
-        try:
-            soup = BeautifulSoup(website_html, 'html.parser')
-            
-            # Remove script/style elements
-            for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
-                tag.decompose()
-            
-            # Extract meta description
-            meta_desc = soup.select_one('meta[name="description"]')
-            if meta_desc and meta_desc.get('content'):
-                content = str(meta_desc.get('content', ''))
-                detail_data['detail_description'] = content.strip()
-            
-            # Extract main heading
-            main_heading = soup.select_one('h1') or soup.select_one('h2')
-            if main_heading:
-                heading_text = main_heading.get_text(strip=True)
-                if heading_text and len(heading_text) > 10:
-                    if 'detail_description' not in detail_data:
-                        detail_data['detail_description'] = heading_text
-                    else:
-                        detail_data['detail_description'] = f"{detail_data['detail_description']}\n\n{heading_text}"
-            
-            # Extract paragraphs for description
-            paragraphs = soup.select('p')
-            desc_paragraphs = []
-            for p in paragraphs:
-                text = p.get_text(strip=True)
-                if text and len(text) > 50 and len(text) < 1000:
-                    # Filter out navigation/menu text
-                    if not any(skip in text.lower() for skip in ['impressum', 'datenschutz', 'kontakt', 'menu', 'navigation']):
-                        desc_paragraphs.append(text)
-                        if len(desc_paragraphs) >= 3:
-                            break
-            
-            if desc_paragraphs:
-                if 'detail_description' in detail_data:
-                    detail_data['detail_description'] = f"{detail_data['detail_description']}\n\n" + '\n\n'.join(desc_paragraphs)
-                else:
-                    detail_data['detail_description'] = '\n\n'.join(desc_paragraphs)
-            
-            # Extract location from address patterns
-            address_patterns = [
-                r'\d{5}\s+[A-Za-zÄÖÜäöüß]+',  # German postal code pattern
-                r'[A-Za-zäöüÄÖÜß]+\s+\d{1,3}[a-z]?',  # Street address
-                r'Straße|Straße|Platz|Weg|Allee',  # Street type keywords
-            ]
-            
-            text_content = soup.get_text(separator=' ', strip=True)
-            for pattern in address_patterns:
-                matches = re.finditer(pattern, text_content)
-                addresses = [m.group(0) for m in matches]
-                if addresses:
-                    detail_data['detail_location'] = ', '.join(addresses[:3])
-                    break
-            
-            # Extract phone numbers for contact info
-            phone_match = re.search(r'(\+49|0\d{3,4})\s*\d{6,}', text_content)
-            if phone_match:
-                detail_data['detail_phone'] = phone_match.group(0)
-            
-            # Store source
-            detail_data['detail_source'] = website_url
-            
-            return detail_data if detail_data else None
-            
-        except Exception as e:
-            print(f"[Hilden] Error parsing website page {website_url}: {e}")
-            return None
-
     def fetch_level2_data(self, events: List[Event], raw_html: str | None = None) -> List[Event]:
-        """Fetch Level 2 detail data from external websites.
+        """Fetch Level 2 detail data from Hilden detail pages.
         
-        For each event with an event_url, fetch the external website
+        For each event with an event_url (detail page), fetch the detail page
         and extract additional details (full description, location, etc.).
         
         Args:
@@ -233,12 +164,14 @@ class HildenRegex(BaseRule):
             List of Event objects with Level 2 data merged in (raw_data field).
         """
         import requests
+        from bs4 import BeautifulSoup
+        import re
         
         if not events:
             return events
         
         events_with_urls = [e for e in events if e.event_url]
-        print(f"[Hilden Level 2] Fetching details for {len(events_with_urls)} events with URLs (out of {len(events)} total)...")
+        print(f"[Hilden Level 2] Fetching details for {len(events_with_urls)} events with detail pages (out of {len(events)} total)...")
         
         count_success = 0
         count_failed = 0
@@ -252,28 +185,23 @@ class HildenRegex(BaseRule):
                 
                 resp = requests.get(
                     event.event_url,
-                    timeout=15,
+                    timeout=20,
                     headers={"User-Agent": "WeeklyMail/1.0"}
                 )
                 resp.raise_for_status()
                 
-                # Parse website page
-                detail_data = self.parse_website_page(resp.text, event.event_url)
+                detail_data = self.parse_hilden_detail_page(resp.text, event.event_url)
                 
                 if detail_data:
-                    # Update event with detail data
                     event.raw_data = detail_data
                     
-                    # Update location from detail data if better than current
-                    if 'detail_location' in detail_data and len(detail_data['detail_location']) > 20:
-                        if not event.location or len(detail_data['detail_location']) > len(event.location):
-                            event.location = detail_data['detail_location']
-                    
-                    # Update description with detail description (prefer website description over basic JSON description)
                     if 'detail_description' in detail_data and detail_data['detail_description']:
-                        # Keep website description if it's meaningful (longer than title)
                         if len(detail_data['detail_description']) > len(event.name) + 10:
                             event.description = detail_data['detail_description']
+                    
+                    if 'detail_location' in detail_data and detail_data['detail_location']:
+                        if not event.location or len(detail_data['detail_location']) > len(event.location):
+                            event.location = detail_data['detail_location']
                     
                     print(f"  ✓ Fetched details for: {event.name[:50]}")
                     count_success += 1
@@ -295,6 +223,79 @@ class HildenRegex(BaseRule):
         print(f"[Hilden Level 2] Completed: {count_success} successes, {count_failed} failures")
         
         return events
+
+    def parse_hilden_detail_page(self, html: str, url: str) -> dict:
+        """Parse Hilden detail page for event information.
+        
+        Args:
+            html: HTML content of the detail page.
+            url: URL of the detail page.
+        
+        Returns:
+            Dictionary with extracted details (detail_description, detail_location, etc.).
+        """
+        import json
+        
+        detail_data = {}
+        
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Extract meta description (contains full event description)
+            meta_desc = soup.select_one('meta[name="description"]')
+            if meta_desc and meta_desc.get('content'):
+                content = str(meta_desc.get('content', '')).strip()
+                if content and len(content) > 50:
+                    detail_data['detail_description'] = content
+            
+            # Extract from schema.org JSON-LD as fallback
+            json_ld_script = soup.select_one('script[type="application/ld+json"]')
+            if json_ld_script and json_ld_script.string and 'detail_description' not in detail_data:
+                try:
+                    schema_data = json.loads(json_ld_script.string)
+                    if isinstance(schema_data, list):
+                        for item in schema_data:
+                            if item.get('@type') == 'Event':
+                                desc = item.get('description', '')
+                                if desc and len(desc) > 50:
+                                    detail_data['detail_description'] = desc
+                                break
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            
+            # Extract location from schema.org data
+            if json_ld_script and json_ld_script.string:
+                try:
+                    schema_data = json.loads(json_ld_script.string)
+                    if isinstance(schema_data, list):
+                        for item in schema_data:
+                            if item.get('@type') == 'Event':
+                                location = item.get('location', {})
+                                if isinstance(location, dict):
+                                    loc_name = location.get('name', '')
+                                    address = location.get('address', {})
+                                    if isinstance(address, dict):
+                                        street = address.get('streetAddress', '')
+                                        postal = address.get('postalCode', '')
+                                        city = address.get('addressLocality', '')
+                                        parts = [loc_name, street, postal, city]
+                                        location_str = ', '.join(p for p in parts if p)
+                                        if location_str:
+                                            detail_data['detail_location'] = location_str
+                                break
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            
+            detail_data['detail_source'] = url
+            
+            if not detail_data:
+                return {}
+            
+            return detail_data
+            
+        except Exception as e:
+            print(f"[Hilden] Error parsing detail page {url}: {e}")
+            return {}
 
     def extract_events(self, raw_content: str, use_llm_fallback: bool = True) -> List[Event]:
         """Extract events using regex (JSON parsing).

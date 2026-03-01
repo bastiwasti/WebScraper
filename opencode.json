@@ -3,15 +3,9 @@
   "mcp": {
     "webscraper_db": {
       "type": "local",
-      "command": ["npx", "-y", "@executeautomation/database-server", "data/events.db"],
+      "command": ["npx", "-y", "@modelcontextprotocol/server-postgres",
+                  "postgresql://webscraper:webscraper@localhost:5432/vmpostgres?options=-csearch_path%3Dwebscraper"],
       "enabled": true
     }
-  },
-  "tools": {
-    "webscraper_db_write_query": false,
-    "webscraper_db_create_table": false,
-    "webscraper_db_alter_table": false,
-    "webscraper_db_drop_table": false,
-    "webscraper_db_append_insight": false
   }
 }
