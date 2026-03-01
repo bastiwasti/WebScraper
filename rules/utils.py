@@ -305,6 +305,32 @@ AGGREGATOR_CITY_MAPPING = {
 }
 
 
+# Standard city names (underscore format)
+# All city names in the system must match this format
+STANDARD_CITIES = {
+    "monheim_am_rhein",
+    "langenfeld",
+    "leverkusen",
+    "hilden",
+    "dormagen",
+    "hitdorf",
+    "leichlingen",
+    "burscheid",
+    "solingen",
+    "neuss",
+    "koeln",
+    "ratingen",
+    "haan",
+    "bergisch_gladbach",
+    "grevenbroich",
+    "pulheim",
+    "wuppertal",
+    "mettmann",
+    "erkrath",
+    "frechen",
+}
+
+
 def extract_city_from_address(address_locality: str, postal_code: str, default_city: str = "") -> str:
     """Extract city name from address fields, handling swapped postal codes.
     
@@ -388,3 +414,100 @@ def map_aggregator_city(raw_city: str, default_city: str = "") -> str:
     # If not found in mapping, try normalize_city as fallback
     # This handles cases like "Leverkusen" → "leverkusen"
     return normalize_city(raw_city, default_city)
+
+
+def validate_city(city: str) -> tuple[bool, str]:
+    """Validate city name against standard format.
+    
+    Checks if city name matches standard underscore format (e.g., "monheim_am_rhein").
+    
+    Args:
+        city: City name to validate.
+    
+    Returns:
+        Tuple of (is_valid, normalized_city):
+        - is_valid: True if city is in standard format
+        - normalized_city: Normalized city name (if applicable)
+    
+    Examples:
+        >>> validate_city("monheim_am_rhein")
+        (True, 'monheim_am_rhein')
+        >>> validate_city("monheim")
+        (False, 'monheim_am_rhein')
+        >>> validate_city("monheim am rhein")
+        (False, 'monheim_am_rhein')
+    """
+    if not city:
+        return False, ""
+    
+    city_lower = city.lower().strip()
+    
+    # Check if already in standard format
+    if city_lower in STANDARD_CITIES:
+        return True, city_lower
+    
+    # Try to normalize common variations
+    # "monheim" -> "monheim_am_rhein"
+    # "monheim am rhein" -> "monheim_am_rhein"
+    if city_lower == "monheim":
+        return False, "monheim_am_rhein"
+    
+    if city_lower in ["monheim am rhein", "monheim am rhein", "monheim am rhein"]:
+        return False, "monheim_am_rhein"
+    
+    # Check other common patterns
+    for standard_city in STANDARD_CITIES:
+        if city_lower.replace(" ", "_") == standard_city:
+            return False, standard_city
+        if city_lower.replace("_", " ") == standard_city:
+            return False, standard_city
+    
+    # City not in standard format and no normalization found
+    return False, city_lower
+
+
+def normalize_city_name(city: str) -> str:
+    """Normalize city name to standard underscore format.
+    
+    Converts common city name variations to standard underscore format:
+    - "Monheim am Rhein" -> "monheim_am_rhein"
+    - "Düsseldorf" -> "dusseldorf"
+    - "Köln" -> "koeln"
+    - Already normalized names are returned unchanged
+    
+    Args:
+        city: City name to normalize.
+    
+    Returns:
+        Normalized city name in underscore format.
+    
+    Examples:
+        >>> normalize_city_name("Monheim am Rhein")
+        'monheim_am_rhein'
+        >>> normalize_city_name("Düsseldorf")
+        'dusseldorf'
+        >>> normalize_city_name("monheim_am_rhein")
+        'monheim_am_rhein'
+    """
+    if not city:
+        return ""
+    
+    city_lower = city.lower().strip()
+    
+    # Direct mapping from AGGREGATOR_CITY_MAPPING
+    if city_lower in AGGREGATOR_CITY_MAPPING:
+        return AGGREGATOR_CITY_MAPPING[city_lower]
+    
+    # Already in standard format
+    if city_lower in STANDARD_CITIES:
+        return city_lower
+    
+    # Try common variations
+    if city_lower == "monheim":
+        return "monheim_am_rhein"
+    
+    if city_lower in ["monheim am rhein", "monheim am rhein", "monheim am rhein"]:
+        return "monheim_am_rhein"
+    
+    # Return original if no normalization found
+    return city_lower

@@ -262,6 +262,28 @@ class AnalyzerAgent:
             return 'dormagen'
         
         return ''
+    
+    def _validate_city_format(self, city: str, event_name: str = "") -> None:
+        """Validate city format and warn if not standard.
+        
+        Args:
+            city: City name to validate.
+            event_name: Event name for warning message (optional).
+        """
+        if not city:
+            return
+        
+        from rules import utils
+        
+        is_valid, normalized_city = utils.validate_city(city)
+        
+        if not is_valid:
+            event_info = f"Event: '{event_name}'" if event_name else "Event"
+            print(f"WARNING: Non-standard city format found for {event_info}")
+            print(f"  Current city: '{city}'")
+            print(f"  Standard format: '{normalized_city}'")
+            print(f"  Please update scraper to use standard format")
+            print()
 
     def _deduplicate_events(self, events: list[dict]) -> list[dict]:
         """Remove duplicate events based on event ID if available, otherwise name, location, date, and source."""
@@ -412,5 +434,9 @@ class AnalyzerAgent:
                 event_dict["category"] = category
             
             all_events.append(event_dict)
+        
+        # Validate city formats after all events are processed
+        for event in all_events:
+            self._validate_city_format(event.get("city", ""), event.get("name", ""))
         
         return all_events

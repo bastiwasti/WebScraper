@@ -40,6 +40,34 @@ class RausgegangenScraper(BaseScraper):
     # Matches: /events/xyz/ or /en/events/xyz/ or https://rausgegangen.de/events/xyz/
     EVENT_URL_PATTERN = r'(?:https://rausgegangen\.de)?/?(?:en/)?events/([^/]+)/'
 
+    # City code mapping for URL-based city extraction
+    # Maps URL city codes (lowercase) to internal normalized city names
+    CITY_CODE_MAPPING = {
+        "kol": "koeln",
+        "koln": "koeln",
+        "dusseldorf": "dusseldorf",
+        "duesseldorf": "dusseldorf",
+        "solingen": "solingen",
+        "neuss": "neuss",
+        "leverkusen": "leverkusen",
+        "monheim": "monheim_am_rhein",
+        "langenfeld": "langenfeld",
+        "hilden": "hilden",
+        "dormagen": "dormagen",
+        "burscheid": "burscheid",
+        "leichlingen": "leichlingen",
+        "hitdorf": "hitdorf",
+        "ratingen": "ratingen",
+        "haan": "haan",
+        "bergisch": "bergisch_gladbach",
+        "frechen": "frechen",
+        "erkrath": "erkrath",
+        "wuppertal": "wuppertal",
+        "mettmann": "mettmann",
+        "pulheim": "pulheim",
+        "grevenbroich": "grevenbroich",
+    }
+
     def __init__(self, url: str):
         super().__init__(url)
         self.base_url = "https://rausgegangen.de"
@@ -345,6 +373,54 @@ class RausgegangenScraper(BaseScraper):
         
         return None
 
+    def _extract_city_from_url(self, event_url: str) -> str:
+        """Extract city name from event URL slug (fallback method).
+
+        Parses the URL slug for known city codes (e.g., "...-in-kol-..." → "koeln").
+
+        Args:
+            event_url: Full event detail page URL.
+
+        Returns:
+            Normalized city name, or empty string if not found.
+        """
+        match = re.match(r'.*/events/([^/]+)/', event_url)
+        if not match:
+            return ""
+
+        slug = match.group(1).lower()
+
+        for city_code, normalized_city in self.CITY_CODE_MAPPING.items():
+            if f"-{city_code}-" in slug or slug.endswith(f"-{city_code}") or slug.startswith(f"{city_code}-"):
+                return normalized_city
+
+        return ""
+
+    def _extract_city_from_name(self, name: str) -> str:
+        """Extract city name from event name (fallback method).
+        
+        Parses event name for "in {city}" pattern (e.g., "...in Köln" → "koeln").
+        
+        Args:
+            name: Event name/title.
+        
+        Returns:
+            Normalized city name, or empty string if not found.
+        """
+        if not name:
+            return ""
+        
+        import re
+        name_lower = name.lower()
+        
+        for raw_city, normalized_city in utils.AGGREGATOR_CITY_MAPPING.items():
+            raw_city_normalized = raw_city.lower().replace(' ', ' ').replace('_', '_')
+            pattern = rf'\bin\s+{re.escape(raw_city_normalized)}\b'
+            if re.search(pattern, name_lower, re.IGNORECASE):
+                return normalized_city
+        
+        return ""
+
     def _create_event_from_detail(self, detail: dict) -> Optional[Event]:
         """Create Event object from event detail dictionary.
         
@@ -406,9 +482,21 @@ class RausgegangenScraper(BaseScraper):
         city_raw = address_data.get('addressLocality', '') if isinstance(address_data, dict) else ''
         postal_code = address_data.get('postalCode', '') if isinstance(address_data, dict) else ''
         street_address = address_data.get('streetAddress', '') if isinstance(address_data, dict) else ''
-        
-        # Map city name - handle swapped postal code fields (rausgegenden bug)
-        city = utils.extract_city_from_address(city_raw, postal_code, default_city='monheim_am_rhein')
+
+        city = ""
+
+        city_from_address = utils.extract_city_from_address(city_raw, postal_code, default_city='')
+        if city_from_address:
+            city = utils.map_aggregator_city(city_from_address, '')
+
+        if not city:
+            city = self._extract_city_from_url(event_url)
+
+        if not city:
+            city = self._extract_city_from_name(name)
+
+        if not city:
+            city = 'monheim_am_rhein'
         
         # Build location string
         location_parts = [location_name, street_address]

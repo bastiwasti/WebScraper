@@ -112,6 +112,7 @@ class MarienburgEventsRegex(BaseRule):
                     source=self.url,
                     category=category,
                     event_url=event_url,
+                    city="monheim_am_rhein",
                     origin=self.get_origin(),
                 )
 
