@@ -26,3 +26,11 @@ FAMILY_FOCUS = os.getenv("FAMILY_FOCUS", "true").lower() in ("1", "true", "yes")
 # SQLite DB for storing scraped events (for automation and next agents)
 _data_dir = Path(__file__).resolve().parent / "data"
 DB_PATH = os.getenv("DB_PATH", str(_data_dir / "events.db"))
+
+# Locations/Ausflüge feature — center point and radius
+MONHEIM_LAT = 51.0917
+MONHEIM_LNG = 6.8873
+LOCATIONS_RADIUS_KM = 30
+
+# Google Places API (optional, for future restaurant enrichment)
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")

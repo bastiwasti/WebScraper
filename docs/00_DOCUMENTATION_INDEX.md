@@ -20,6 +20,7 @@ All documentation files follow a format: `{number}_{name}.md`
 | 20_ | 20 | Implementation notes | 20_rausgegangen_implementation.md |
 | 30_ | 30 | City implementation plans | 30_leverkusen_implementation_plan.md |
 | 40_ | 40 | Configuration & Integration | 40_mcp_sqlite_setup.md |
+| 50_ | 50 | Standalone Features | 50_locations_feature.md |
 | 99_ | 99 | Historical reference | 99_agent_errors.md |
 
 ---
@@ -245,6 +246,28 @@ All documentation files follow a format: `{number}_{name}.md`
 
 ---
 
+## 50 Features
+
+**Category:** Standalone features beyond the events pipeline
+
+### 50_locations_feature.md
+**Purpose:** Locations/Ausflüge feature — family-friendly places within 30km of Monheim
+**For:** Users and developers working with the locations discovery and maintenance system
+
+**Contents:**
+- CLI commands (discover, list, stats, check-urls)
+- Location categories (playground, museum, park, garden, zoo, pool, sport, etc.)
+- Data sources (Overpass API, manual seed file, future Google Places)
+- Database schema (locations table)
+- MCP query examples
+- Discovery pipeline flow
+- Maintenance (URL health checking)
+- File structure and configuration
+
+**Note:** Completely independent from the events pipeline. Locations are permanent places, not time-bound events.
+
+---
+
 ## 99 Historical Reference
 
 **Category:** Historical logs and error tracking
@@ -325,6 +348,7 @@ Everything else is reference material — consult as needed.
 | Cron jobs | docs/13_cron_setup.md |
 | Category system | docs/14_categories.md |
 | MCP SQLite setup | docs/40_mcp_sqlite_setup.md |
+| Locations feature | docs/50_locations_feature.md |
 | Debug errors | docs/99_agent_errors.md |
 | Autonomous logs | docs/autonomous/ |
 
@@ -347,6 +371,7 @@ WebScraper/
 │   ├── 20_rausgegangen_implementation.md  # Rausgegangen implementation
 │   ├── 30_leverkusen_implementation_plan.md  # Leverkusen implementation plan
 │   ├── 40_mcp_sqlite_setup.md            # MCP SQLite configuration
+│   ├── 50_locations_feature.md           # Locations/Ausflüge feature
 │   ├── 99_agent_errors.md         # Historical error log
 │   └── autonomous/               # Autonomous execution logs
 │       ├── 2x_monheim_autonomous_2026-02-26T19:34:50.md

@@ -110,8 +110,32 @@ def main() -> None:
         default=5000,
         help="Maximum characters per chunk (default: 5000).",
     )
+
+    # --- Locations/Ausflüge feature ---
+    parser.add_argument(
+        "--locations",
+        metavar="COMMAND",
+        help="Locations feature. Commands: discover, check-urls, list, stats",
+    )
+    parser.add_argument(
+        "--locations-source",
+        dest="locations_source",
+        help="Source filter for discover command (overpass, manual).",
+    )
+    parser.add_argument(
+        "--locations-category",
+        dest="locations_category",
+        help="Category filter for list command (playground, museum, park, etc.).",
+    )
+
     args = parser.parse_args()
-    
+
+    # --- Dispatch locations commands (separate from events pipeline) ---
+    if args.locations:
+        from locations.cli import handle_command
+        handle_command(args)
+        sys.exit(0)
+
     def resolve_url(url_or_folder: str) -> str:
         """Resolve --url argument to actual URL.
         
