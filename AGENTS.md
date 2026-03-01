@@ -5,7 +5,7 @@
 WebScraper is a Python-based two-agent LLM pipeline for scraping and analyzing local events from cities around Monheim am Rhein, Germany.
 
 ### System Type
-- **Pipeline**: Scraper Agent → Analyzer Agent → SQLite Database
+- **Pipeline**: Scraper Agent → Analyzer Agent → PostgreSQL Database
 - **LLM Provider**: DeepSeek (deepseek-chat)
 - **Scale**: 10,000+ events from 30+ sources across 8 cities
 
@@ -31,6 +31,7 @@ Target cities around Monheim am Rhein:
 | Add new city scraper | See `docs/00_url_setup_prompt.md` |
 | View database | Use MCP tools: `webscraper_db_read_query` |
 | Debug scraper | See `docs/99_agent_errors.md` patterns |
+| Database schema | All tables are in `webscraper` schema (not `public`) |
 
 ---
 
@@ -39,7 +40,7 @@ Target cities around Monheim am Rhein:
 ```
 ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
 │   CLI Entry     │─────▶│   Pipeline      │─────▶│   Storage       │
-│   (main.py)     │      │   Orchestrator  │      │   (SQLite)      │
+│   (main.py)     │      │   Orchestrator  │      │  (PostgreSQL)   │
 └─────────────────┘      └─────────────────┘      └─────────────────┘
                                  │
              ┌───────────────────┼───────────────────┐
@@ -356,6 +357,8 @@ python -c "from rules import get_rule; r = get_rule('https://example.com'); prin
 
 ## MCP Database Access
 
+**IMPORTANT**: All database tables are in the `webscraper` schema, not `public`. The MCP tools automatically use the correct schema. The `public` schema has been renamed to `Jobsearch`.
+
 ### Available MCP Tools
 
 - **`webscraper_db_read_query`** - Execute SELECT queries to read events data
@@ -401,7 +404,7 @@ WebScraper/
 ├── config.py              # Configuration and LLM setup
 ├── main.py                # CLI entry point
 ├── pipeline.py            # Pipeline orchestration
-├── storage.py             # SQLite database operations
+├── storage.py             # PostgreSQL database operations
 ├── requirements.txt       # Dependencies
 │
 ├── agents/                # Agent implementations
@@ -429,8 +432,9 @@ WebScraper/
 │               ├── scraper.py
 │               └── regex.py
 │
-├── data/                  # Database storage
-│   └── events.db          # SQLite database (created on run)
+├── scripts/               # Database scripts
+│   ├── init_postgres.sql  # Schema + permissions setup
+│   └── migrate_sqlite_to_postgres.py  # One-time migration
 │
 ├── logs/                  # Timestamped logs
 │   └── scrape_*.log

@@ -1,91 +1,109 @@
-"""SQLite storage for scraped events. Used for automation and by the next agents."""
+"""PostgreSQL storage for scraped events. Used for automation and by the next agents.
 
-import sqlite3
+IMPORTANT: All tables are in the 'webscraper' schema, not 'public'. The 'public' schema has been renamed to 'Jobsearch'.
+"""
+
+import psycopg2
+import psycopg2.extensions
+from psycopg2.extras import RealDictCursor
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 import json
 
-from config import DB_PATH
+from config import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD, PG_SCHEMA
 
 
-def get_connection() -> sqlite3.Connection:
-    """Open connection to the events DB. Creates file and table if needed."""
-    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+def get_connection() -> psycopg2.extensions.connection:
+    """Open connection to the Postgres DB (webscraper schema)."""
+    conn = psycopg2.connect(
+        host=PG_HOST, port=PG_PORT, dbname=PG_DATABASE,
+        user=PG_USER, password=PG_PASSWORD,
+        cursor_factory=RealDictCursor,
+    )
+    conn.autocommit = False
+    with conn.cursor() as cur:
+        cur.execute("SET search_path TO %s, public", (PG_SCHEMA,))
     return conn
 
 
-def _migrate_status_table(conn: sqlite3.Connection) -> None:
+def _execute(conn, sql, params=None):
+    """Execute SQL via cursor (psycopg2 requires cursor-based execution)."""
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    return cur
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    """Check if a table exists in the webscraper schema."""
+    cur = _execute(conn,
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = %s AND table_name = %s",
+        (PG_SCHEMA, table_name))
+    return cur.fetchone() is not None
+
+
+def _column_exists(conn, table_name: str, column_name: str) -> bool:
+    """Check if a column exists in a table."""
+    cur = _execute(conn,
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+        (PG_SCHEMA, table_name, column_name))
+    return cur.fetchone() is not None
+
+
+def _migrate_status_table(conn) -> None:
     """Migrate status table to add new columns if they don't exist."""
     try:
-        # Check if status table exists
-        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='status'")
-        table_exists = cur.fetchone() is not None
+        if not _table_exists(conn, 'status'):
+            return
 
-        if not table_exists:
-            return  # Table doesn't exist yet, will be created with new columns
-
-        # Check if events_regex column exists
-        cur = conn.execute("PRAGMA table_info(status)")
-        columns = [row["name"] for row in cur.fetchall()]
-
-        if "events_regex" not in columns:
-            conn.execute("ALTER TABLE status ADD COLUMN events_regex INTEGER DEFAULT 0")
+        if not _column_exists(conn, 'status', 'events_regex'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN events_regex INTEGER DEFAULT 0")
             conn.commit()
 
-        if "events_llm" not in columns:
-            conn.execute("ALTER TABLE status ADD COLUMN events_llm INTEGER DEFAULT 0")
+        if not _column_exists(conn, 'status', 'events_llm'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN events_llm INTEGER DEFAULT 0")
             conn.commit()
     except Exception as e:
         print(f"Warning: Failed to migrate status table: {e}")
+        conn.rollback()
 
 
-def _migrate_events_table(conn: sqlite3.Connection) -> None:
+def _migrate_events_table(conn) -> None:
     """Migrate events table to add origin column if it doesn't exist."""
     try:
-        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
-        table_exists = cur.fetchone() is not None
+        if not _table_exists(conn, 'events'):
+            return
 
-        if not table_exists:
-            return  # Table doesn't exist yet, will be created with new columns
-
-        # Check if origin column exists
-        cur = conn.execute("PRAGMA table_info(events)")
-        columns = [row["name"] for row in cur.fetchall()]
-
-        if "origin" not in columns:
-            conn.execute("ALTER TABLE events ADD COLUMN origin TEXT")
+        if not _column_exists(conn, 'events', 'origin'):
+            _execute(conn, "ALTER TABLE events ADD COLUMN origin TEXT")
             conn.commit()
-            print("✓ Added 'origin' column to events table")
+            print("Added 'origin' column to events table")
 
-            # Add index for faster queries
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_origin ON events(origin)")
+            _execute(conn, "CREATE INDEX IF NOT EXISTS idx_events_origin ON events(origin)")
             conn.commit()
-            print("✓ Added index on 'origin' column")
+            print("Added index on 'origin' column")
     except Exception as e:
         print(f"Warning: Failed to migrate events table: {e}")
+        conn.rollback()
 
 
-def init_db(conn: sqlite3.Connection | None = None) -> None:
+def init_db(conn=None) -> None:
     """Create events, raw_summaries, runs, and status tables if they do not exist."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
-        conn.execute("""
+        _execute(conn, """
             CREATE TABLE IF NOT EXISTS runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 agent TEXT NOT NULL,
                 cities TEXT,
                 created_at TEXT NOT NULL,
                 raw_summary_id INTEGER
             )
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE TABLE IF NOT EXISTS status (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 run_id INTEGER NOT NULL,
                 linked_run_id INTEGER,
                 urls TEXT,
@@ -101,19 +119,19 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 FOREIGN KEY (linked_run_id) REFERENCES runs(id)
             )
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_status_run_id
             ON status(run_id)
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 run_id INTEGER,
                 name TEXT NOT NULL,
                 description TEXT,
                 location TEXT,
-                start_datetime DATETIME,
-                end_datetime DATETIME,
+                start_datetime TIMESTAMP,
+                end_datetime TIMESTAMP,
                 category TEXT,
                 source TEXT,
                 city TEXT,
@@ -129,25 +147,25 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 FOREIGN KEY (run_id) REFERENCES runs(id)
             )
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_events_start_datetime
             ON events(start_datetime)
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_events_end_datetime
             ON events(end_datetime)
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_events_category
             ON events(category)
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_events_run_id
             ON events(run_id)
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE TABLE IF NOT EXISTS raw_summaries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 run_id INTEGER,
                 location TEXT,
                 max_search INTEGER,
@@ -159,25 +177,19 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 FOREIGN KEY (run_id) REFERENCES runs(id)
             )
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_raw_summaries_created_at
             ON raw_summaries(created_at)
         """)
-        conn.execute("""
+        _execute(conn, """
             CREATE INDEX IF NOT EXISTS idx_raw_summaries_run_id
             ON raw_summaries(run_id)
         """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_status_run_id
-            ON status(run_id)
-            """)
-        
-        # Migrate existing status table to add new columns if needed
-        _migrate_status_table(conn)
 
-        # Migrate events table to add origin column if needed
+        # Migrate existing tables to add new columns if needed
+        _migrate_status_table(conn)
         _migrate_events_table(conn)
-        
+
         conn.commit()
     finally:
         if own_conn:
@@ -189,7 +201,7 @@ def create_run(
     cities: list[str] | None = None,
     raw_summary_id: int | None = None,
     linked_run_id: int | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> int:
     """Create a new pipeline run and return run_id."""
     own_conn = conn is None
@@ -198,25 +210,27 @@ def create_run(
     try:
         init_db(conn)
         now = datetime.utcnow().isoformat() + "Z"
-        
+
         # Convert cities list to comma-separated string
         cities_str = ",".join(cities) if cities else None
-        
-        cur = conn.execute(
+
+        cur = _execute(conn,
             """
             INSERT INTO runs (agent, cities, created_at, raw_summary_id)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
             """,
             (agent, cities_str, now, raw_summary_id),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cur.lastrowid or 0
+        return row["id"] if row else 0
     finally:
         if own_conn:
             conn.close()
 
 
-def append_to_agent(run_id: int, agent_name: str, conn: sqlite3.Connection | None = None) -> None:
+def append_to_agent(run_id: int, agent_name: str, conn=None) -> None:
     """Append agent name to agent column (comma-separated)."""
     own_conn = conn is None
     if own_conn:
@@ -224,22 +238,22 @@ def append_to_agent(run_id: int, agent_name: str, conn: sqlite3.Connection | Non
     try:
         init_db(conn)
         # Get current agent string
-        cur = conn.execute("SELECT agent FROM runs WHERE id = ?", (run_id,))
+        cur = _execute(conn, "SELECT agent FROM runs WHERE id = %s", (run_id,))
         row = cur.fetchone()
         if row and row["agent"]:
             current_agent = row["agent"]
             # Append if not already present
             if agent_name not in current_agent:
                 new_agent = f"{current_agent}, {agent_name}"
-                conn.execute(
-                    "UPDATE runs SET agent = ? WHERE id = ?",
+                _execute(conn,
+                    "UPDATE runs SET agent = %s WHERE id = %s",
                     (new_agent, run_id),
                 )
                 conn.commit()
         else:
             # Set initial agent
-            conn.execute(
-                "UPDATE runs SET agent = ? WHERE id = ?",
+            _execute(conn,
+                "UPDATE runs SET agent = %s WHERE id = %s",
                 (agent_name, run_id),
             )
             conn.commit()
@@ -248,14 +262,14 @@ def append_to_agent(run_id: int, agent_name: str, conn: sqlite3.Connection | Non
             conn.close()
 
 
-def get_runs(limit: int = 20, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+def get_runs(limit: int = 20, conn=None) -> list[dict[str, Any]]:
     """Get recent runs with their counts."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
-        cur = conn.execute(
+        cur = _execute(conn,
             """
             SELECT r.id, r.agent, r.cities, r.created_at,
                     s.start_time, s.end_time, s.duration, s.events_found, s.valid_events, s.linked_run_id,
@@ -263,7 +277,7 @@ def get_runs(limit: int = 20, conn: sqlite3.Connection | None = None) -> list[di
             FROM runs r
             LEFT JOIN status s ON s.run_id = r.id
             ORDER BY r.id DESC
-            LIMIT ?
+            LIMIT %s
             """,
             (limit,),
         )
@@ -289,23 +303,25 @@ def get_runs(limit: int = 20, conn: sqlite3.Connection | None = None) -> list[di
             conn.close()
 
 
-def reset_database(conn: sqlite3.Connection | None = None) -> None:
+def reset_database(conn=None) -> None:
     """Drop and recreate all tables (start from scratch)."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
-        conn.execute("DROP TABLE IF EXISTS events")
-        conn.execute("DROP TABLE IF EXISTS raw_summaries")
-        conn.execute("DROP TABLE IF EXISTS runs")
-        conn.execute("DROP TABLE IF EXISTS status")
-        print("✓ Database tables dropped successfully")
-        
+        _execute(conn, "DROP TABLE IF EXISTS events CASCADE")
+        _execute(conn, "DROP TABLE IF EXISTS raw_summaries CASCADE")
+        _execute(conn, "DROP TABLE IF EXISTS status CASCADE")
+        _execute(conn, "DROP TABLE IF EXISTS runs CASCADE")
+        conn.commit()
+        print("Database tables dropped successfully")
+
         # Recreate tables
         init_db(conn)
-        print("✓ Database tables recreated successfully")
+        print("Database tables recreated successfully")
     except Exception as e:
         print(f"Warning: Failed to reset database: {e}")
+        conn.rollback()
     finally:
         if own_conn:
             conn.close()
@@ -313,12 +329,12 @@ def reset_database(conn: sqlite3.Connection | None = None) -> None:
 
 def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = None, city: str = "", url: str = "") -> tuple[datetime | None, datetime | None]:
     """Parse date and time strings into datetime objects.
-    
+
     Returns:
         (start_datetime, end_datetime) tuple
         - start_datetime: Combined date + time, or None if invalid
         - end_datetime: Combined date + end_time, or None if not provided/invalid
-    
+
     Rules:
         - All-day events (no time): 00:00:00 for both start and end
         - No end time: start_datetime only, end_datetime = None
@@ -330,19 +346,19 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
     """
     import re
     from datetime import datetime
-    
+
     # Current date context for smart year inference
     CURRENT_DATE = datetime.now()
     CURRENT_YEAR = CURRENT_DATE.year
     CURRENT_MONTH = CURRENT_DATE.month
-    
+
     # Helper function for smart year inference
     def _infer_year(month_num: int) -> int:
         """Smart year inference based on current month.
-        
+
         If month >= current month, use current year.
         If month < current month, use current year - 1.
-        
+
         Edge case: If current month is Dec and parsed month is Jan,
         assume it's for next year (Jan 2027 if Dec 2026).
         """
@@ -358,7 +374,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
         else:
             # Month is past -> previous year
             return CURRENT_YEAR - 1
-    
+
     # German month mapping
     month_map = {
         'januar': 1, 'jan': 1, 'februar': 2, 'feb': 2,
@@ -368,7 +384,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
         'november': 11, 'nov': 11, 'dezember': 12, 'dez': 12,
         'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6, 'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
     }
-    
+
     # Helper function to parse date from components
     def _parse_date_from_components(day: int, month: int, year: int) -> datetime | None:
         """Parse date from day/month/year components."""
@@ -376,14 +392,14 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
             return datetime(year=year, month=month, day=day)
         except ValueError:
             return None
-    
+
     # ========== PHASE 1: Time Range Parsing ==========
     # Handle time ranges like "20:00 – 23:30 Uhr"
     time_range_match = re.match(r'^(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})\s*(?:Uhr)?$', str(time_str))
     if time_range_match:
         # Use first time as start time
         time_str = time_range_match.group(1)
-    
+
     # Parse time
     if not time_str or time_str.lower() in ["ganzer tag", "ganzen tag", "ganzertag", "", "nicht im text angegeben"]:
         hour = 0
@@ -391,7 +407,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
     else:
         cleaned_time = re.sub(r'\s*Uhr', '', str(time_str).strip())
         cleaned_time = cleaned_time.strip()
-        
+
         time_match = None
         for pattern in [
             r'^(\d{1,2}):(\d{2})$',  # HH:MM
@@ -400,7 +416,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
             time_match = re.match(pattern, cleaned_time)
             if time_match:
                 break
-        
+
         if time_match:
             hour = int(time_match.group(1))
             minute = int(time_match.group(2))
@@ -410,11 +426,11 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
             print(f"Warning{city_url}{source_url}: Could not parse time '{time_str}' - defaulting to 00:00")
             hour = 0
             minute = 0
-    
+
     # ========== PHASE 2: Date Range Parsing (Multi-day events) ==========
     def _parse_date_range(date_str: str) -> tuple[datetime | None, datetime | None]:
         """Parse date range and return (start_date, end_date).
-        
+
         Examples:
         - "24.01. – 21.02.2026" -> (2026-01-24, 2026-02-21)
         - "26.-27.06.2026" -> (2026-06-26, 2026-06-27)
@@ -426,7 +442,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
         if range_match1:
             start_date_str = range_match1.group(1)  # "24.01."
             end_date_str = range_match1.group(2)    # "21.02.2026"
-            
+
             # Parse end date
             end_date = None
             cleaned_end = re.sub(r'\s*Uhr', '', end_date_str.strip())
@@ -437,7 +453,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     end_date = _parse_date_from_components(end_day, end_month, end_year)
                 except ValueError:
                     pass
-            
+
             # If end date parsed, infer year for start date
             if end_date and start_date_str.count('.') == 2:
                 try:
@@ -446,10 +462,10 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     return start_date, end_date
                 except (ValueError, TypeError):
                     pass
-            
+
             # If range parsing partially fails, return None to try other patterns
             return None, None
-        
+
         # Pattern 2: DD.-DD.MM.YYYY
         range_match2 = re.match(r'^(\d{1,2})\.-\s*(\d{1,2})\.(\d{2})\.(\d{4})$', date_str)
         if range_match2:
@@ -457,11 +473,11 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
             end_day = int(range_match2.group(2))
             month = int(range_match2.group(3))
             year = int(range_match2.group(4))
-            
+
             start_date = _parse_date_from_components(start_day, month, year)
             end_date = _parse_date_from_components(end_day, month, year)
             return start_date, end_date
-        
+
         # Pattern 3: Month name ranges with year inference
         # "08 Feb. – 20 Dez." with year inference
         range_match3 = re.match(r'^(\d{1,2})\.([A-Za-z]{3})\.?\s*[–-]\s*(\d{1,2})\.([A-Za-z]{3})\.?$', date_str)
@@ -470,57 +486,57 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
             start_month_abbr = range_match3.group(2)
             end_day = int(range_match3.group(3))
             end_month_abbr = range_match3.group(4)
-            
+
             start_month_lower = start_month_abbr.lower()
             end_month_lower = end_month_abbr.lower()
-            
+
             if start_month_lower in month_map and end_month_lower in month_map:
                 start_month_num = month_map[start_month_lower]
                 end_month_num = month_map[end_month_lower]
-                
+
                 # Infer year for start month
                 inferred_start_year = _infer_year(start_month_num)
                 inferred_end_year = _infer_year(end_month_num)
-                
+
                 city_url = f" [City: {city}]" if city else ""
                 source_url = f" [Source: {url}]" if url else ""
                 print(f"Warning{city_url}{source_url}: No year in date range '{date_str}' - inferring years {inferred_start_year} / {inferred_end_year} (smart inference based on month)")
-                
+
                 start_date = _parse_date_from_components(start_day, start_month_num, inferred_start_year)
                 end_date = _parse_date_from_components(end_day, end_month_num, inferred_end_year)
                 return start_date, end_date
-        
+
         return None, None
-    
+
     # Check for date ranges first
     parsed_start_date, parsed_end_date = _parse_date_range(date_str)
-    
+
     # ========== PHASE 3 & 4: Date Parsing with Weekday/Day Abbr Prefixes and Smart Year Inference ==========
     if parsed_end_date:
         # Multi-day event detected
         start_datetime = parsed_start_date.replace(hour=hour, minute=minute, second=0, microsecond=0) if parsed_start_date else None
         end_datetime = parsed_end_date.replace(hour=23, minute=59, second=59, microsecond=999999) if parsed_end_date else None
         return start_datetime, end_datetime
-    
+
     # If not a date range, parse as single date
     parsed_date = None
-    
+
     # Check for empty/incomplete dates first
     if not date_str or date_str.strip() == "":
         print(f"Warning: Date is empty - skipping event")
         return None, None
-    
+
     # Remove "Uhr" if present from date
     cleaned_date = re.sub(r'\s*Uhr', '', str(date_str).strip())
     cleaned_date = re.sub(r'\s*Uhr$', '', cleaned_date)
-    
+
     # Try ISO format with time: YYYY-MM-DDTHH:MM:SS
     if 'T' in cleaned_date:
         try:
             parsed_date = datetime.fromisoformat(cleaned_date.replace('Z', '+00:00'))
         except ValueError:
             pass
-    
+
     # Pattern 1: YYYY-MM-DD (ISO)
     if not parsed_date:
         match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', cleaned_date)
@@ -530,7 +546,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                 parsed_date = _parse_date_from_components(day, month, year)
             except ValueError:
                 pass
-    
+
     # Pattern 2: Day abbreviation + DD.MM.YYYY (e.g., "So 08.02.2026")
     if not parsed_date:
         match = re.match(r'^[A-Z][a-z]{1,2}\s+(\d{1,2}\.\d{2}\.\d{4})$', cleaned_date)
@@ -541,7 +557,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                 parsed_date = _parse_date_from_components(day, month, year)
             except (ValueError, TypeError):
                 pass
-    
+
     # Pattern 3: Full weekday + DD. MonthName YYYY (e.g., "Donnerstag, 12. Februar 2026")
     if not parsed_date:
         match = re.match(r'^[A-Z][a-z]+,\s*(\d{1,2})\.\s*(\w+)\s+(\d{4})$', cleaned_date)
@@ -554,7 +570,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, int(year_str))
                 except ValueError:
                     pass
-    
+
     # Pattern 4: DD.MM.YYYY (German standard)
     if not parsed_date:
         match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{4})$', cleaned_date)
@@ -564,7 +580,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                 parsed_date = _parse_date_from_components(day, month, year)
             except ValueError:
                 pass
-    
+
     # Pattern 5: DD/MM/YYYY (European)
     if not parsed_date:
         match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', cleaned_date)
@@ -574,7 +590,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                 parsed_date = _parse_date_from_components(day, month, year)
             except ValueError:
                 pass
-    
+
     # Pattern 6: DD. MonthName YYYY (German month name)
     if not parsed_date:
         match = re.match(r'^(\d{1,2})[\s.]+(\w+)[\s.]+(\d{4})$', cleaned_date)
@@ -587,7 +603,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, int(year_str))
                 except ValueError:
                     pass
-    
+
     # Pattern 7: DD[. ]MonthName (dot OR space separator, no year - smart inference)
     # Matches: "8. Februar", "08. Feb", "8. Januar", "18 Mär"
     # Combines dot and space separators in one pattern
@@ -606,7 +622,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, inferred_year)
                 except ValueError:
                     pass
-    
+
     # Pattern 7b: DD. MonthName. (dot separator + trailing dot, no year)
     # Matches: "08. Feb." (dot before month and trailing dot)
     if not parsed_date:
@@ -624,7 +640,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, inferred_year)
                 except ValueError:
                     pass
-    
+
     # Pattern 7c: DD. MonthName (space separator, no year - smart inference)
     # Matches: "08. Feb" or "8. Feb" (space before month)
     if not parsed_date:
@@ -640,7 +656,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, inferred_year)
                 except ValueError:
                     pass
-    
+
     # Pattern 7d: DD MonthName. (space separator + trailing dot, no year - smart inference)
     # Matches: "08 Feb." (space before month and trailing dot)
     if not parsed_date:
@@ -656,7 +672,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, inferred_year)
                 except ValueError:
                     pass
-    
+
     # Pattern 7b: DD. MonthName. (no year, with trailing dot - smart inference)
     # Handles "08 Feb." where trailing dot is part of abbreviation, not separator
     if not parsed_date:
@@ -675,7 +691,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, inferred_year)
                 except ValueError:
                     pass
-    
+
     # Pattern 7b: DD. MonthName. (no year, with trailing dot - smart inference)
     # Handles "08 Feb." where the dot is trailing, not part of the abbreviation
     if not parsed_date:
@@ -694,7 +710,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                     parsed_date = _parse_date_from_components(int(day_str), month_num, inferred_year)
                 except ValueError:
                     pass
-    
+
     # ========== PHASE 5: Incomplete Date Detection ==========
     # Pattern: "14. 02." (incomplete - missing year)
     # incomplete_match = re.match(r'^(\d{1,2})\.\s*(\d{2})\.$', cleaned_date)
@@ -703,26 +719,26 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
     #     source_url = f" [Source: {url}]" if url else ""
     #     print(f"Warning{city_url}{source_url}: Could not parse date '{date_str}' - incomplete date format (missing year). Expected: DD.MM.YYYY or DD. MonthName YYYY")
         return None, None
-    
+
     if not parsed_date:
         city_url = f" [City: {city}]" if city else ""
         source_url = f" [Source: {url}]" if url else ""
         print(f"Warning{city_url}{source_url}: Could not parse date '{date_str}' - returning None")
         return None, None
-    
+
     # Create start datetime
     start_datetime = parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    
+
     # Parse end time if provided (separate from date ranges)
     if end_time_str and not parsed_end_date:
         cleaned_end_time = re.sub(r'\s*Uhr', '', str(end_time_str).strip())
         cleaned_end_time = cleaned_end_time.strip()
-        
+
         # Handle time ranges in end_time
         end_time_range_match = re.match(r'^(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})\s*(?:Uhr)?$', cleaned_end_time)
         if end_time_range_match:
             cleaned_end_time = end_time_range_match.group(1)
-        
+
         end_time_match = None
         for pattern in [
             r'^(\d{1,2}):(\d{2})$',
@@ -731,13 +747,13 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
             end_time_match = re.match(pattern, cleaned_end_time)
             if end_time_match:
                 break
-        
+
         if end_time_match:
             end_hour = int(end_time_match.group(1))
             end_minute = int(end_time_match.group(2))
             end_datetime = parsed_date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
             return start_datetime, end_datetime
-    
+
     # All-day event or no end time: same for both
     return start_datetime, start_datetime
 
@@ -748,7 +764,7 @@ def create_run_status(
     full_run: bool = False,
     start_time: str | None = None,
     events_regex: int = 0,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> int:
     """Create a status row for a run."""
     own_conn = conn is None
@@ -757,17 +773,18 @@ def create_run_status(
     try:
         init_db(conn)
         now = start_time if start_time else datetime.utcnow().isoformat() + "Z"
-        import json
         urls_json = json.dumps(urls)
-        cur = conn.execute(
+        cur = _execute(conn,
             """
             INSERT INTO status (run_id, urls, start_time, full_run, events_regex)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (run_id, urls_json, now, full_run, events_regex),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cur.lastrowid or 0
+        return row["id"] if row else 0
     finally:
         if own_conn:
             conn.close()
@@ -776,7 +793,7 @@ def create_run_status(
 def update_run_status_complete(
     run_id: int,
     end_time: str | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> None:
     """Update status row with end time when pipeline completes."""
     own_conn = conn is None
@@ -785,31 +802,22 @@ def update_run_status_complete(
     try:
         init_db(conn)
         if end_time:
-            conn.execute(
+            _execute(conn,
                 """
                 UPDATE status
-                SET end_time = ?
-                WHERE run_id = ?
+                SET end_time = %s
+                WHERE run_id = %s
                 """,
                 (end_time, run_id),
             )
-            conn.execute(
-                """
-                UPDATE status
-                SET duration = strftime('%s', 'now') - strftime('%s', start_time)
-                WHERE run_id = ?
-                """,
-                (run_id,),
-            )
-        else:
-            conn.execute(
-                """
-                UPDATE status
-                SET duration = strftime('%s', 'now') - strftime('%s', start_time)
-                WHERE run_id = ?
-                """,
-                (run_id,),
-            )
+        _execute(conn,
+            """
+            UPDATE status
+            SET duration = EXTRACT(EPOCH FROM NOW() - start_time::timestamp)
+            WHERE run_id = %s
+            """,
+            (run_id,),
+        )
         conn.commit()
     finally:
         if own_conn:
@@ -823,7 +831,7 @@ def update_run_status_analyzed(
     events_regex: int = 0,
     events_llm: int = 0,
     linked_run_id: int | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> None:
     """Update status row with analyzer results (ADD to existing values)."""
     own_conn = conn is None
@@ -832,8 +840,8 @@ def update_run_status_analyzed(
     try:
         init_db(conn)
         # Get current values
-        cur = conn.execute(
-            "SELECT events_found, valid_events, events_regex, events_llm, linked_run_id FROM status WHERE run_id = ?",
+        cur = _execute(conn,
+            "SELECT events_found, valid_events, events_regex, events_llm, linked_run_id FROM status WHERE run_id = %s",
             (run_id,)
         )
         row = cur.fetchone()
@@ -851,21 +859,22 @@ def update_run_status_analyzed(
             new_events_llm = current_events_llm + events_llm
             new_linked_run_id = linked_run_id if linked_run_id else current_linked_run_id
 
-            conn.execute(
+            _execute(conn,
                 """
                 UPDATE status
-                SET events_found = ?,
-                    valid_events = ?,
-                    events_regex = ?,
-                    events_llm = ?,
-                    linked_run_id = ?
-                WHERE run_id = ?
+                SET events_found = %s,
+                    valid_events = %s,
+                    events_regex = %s,
+                    events_llm = %s,
+                    linked_run_id = %s
+                WHERE run_id = %s
                 """,
                 (new_events_found, new_valid_events, new_events_regex, new_events_llm, new_linked_run_id, run_id),
             )
             conn.commit()
     except Exception as e:
         print(f"Warning: Failed to update run status: {e}")
+        conn.rollback()
     finally:
         if own_conn:
             conn.close()
@@ -874,7 +883,7 @@ def update_run_status_analyzed(
 def insert_events(
     events: list[dict[str, Any]],
     run_id: int | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> int:
     """
     Insert structured events (name, description, location, start_datetime, end_datetime, source, city).
@@ -886,7 +895,7 @@ def insert_events(
     try:
         init_db(conn)
         now = datetime.utcnow().isoformat() + "Z"
-        
+
         count = 0
         for e in events:
             name = (e.get("name") or "").strip()
@@ -895,7 +904,7 @@ def insert_events(
             # Level 1 date is always available from calendar listing
             # Level 2 detail_date is only used for validation, not as primary date source
             date_to_parse = e.get("date") or ""
-            
+
             # Parse date (Level 1 date as primary)
             start_datetime, end_datetime = _parse_datetime(
                 date_to_parse,
@@ -919,27 +928,24 @@ def insert_events(
             detail_location = ""
             detail_page_html = ""
             detail_end_time = ""
-            
+
             if raw_data_dict and isinstance(raw_data_dict, dict):
                 detail_description = raw_data_dict.get("detail_description", "")
                 detail_full_description = raw_data_dict.get("detail_full_description", "")
                 detail_location = raw_data_dict.get("detail_location", "")
                 detail_page_html = raw_data_dict.get("html", "")
                 detail_end_time = raw_data_dict.get("detail_end_time", "")
-            
-            # Set detail_scraped flag
-            detail_scraped = 1 if detail_page_html else 0
-            
+
             # Get event URL if available
             event_url = e.get("event_url", "")
-            
+
             # Use Level 2 data when available, otherwise fall back to Level 1
             # Priority: Level 2 > Level 1
             desc_to_use = detail_description if detail_description else (e.get("description") or "").strip()
             loc_to_use = detail_location if detail_location else (e.get("location") or "").strip()
             time_to_use = detail_end_time if detail_end_time else (e.get("end_time") or "")
             level1_time = e.get("time") or ""
-            
+
             # Combine Level 1 time with Level 2 end_time if available
             if detail_end_time and level1_time:
                 # Level 2 has end_time, Level 1 has start time - use both
@@ -948,10 +954,10 @@ def insert_events(
                 time_to_use = level1_time
 
 
-            conn.execute(
+            _execute(conn,
                 """
                     INSERT INTO events (run_id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, event_url, detail_scraped, detail_page_html, detail_description, detail_location, detail_full_description, origin)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         run_id,
@@ -981,10 +987,188 @@ def insert_events(
             conn.close()
 
 
+def init_events_distinct_db(conn=None) -> None:
+    """Create the events_distinct table if it doesn't exist.
+
+    This table holds deduplicated events with stable IDs for ratings and ML.
+    Dedup key: (name, start_datetime, origin) — location is NOT part of the key
+    so that Level 2 enrichment doesn't create duplicates.
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        _execute(conn, """
+            CREATE TABLE IF NOT EXISTS events_distinct (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                location TEXT,
+                start_datetime TIMESTAMP,
+                end_datetime TIMESTAMP,
+                category TEXT,
+                source TEXT,
+                city TEXT,
+                origin TEXT,
+                event_url TEXT,
+                detail_description TEXT,
+                detail_full_description TEXT,
+                rating INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                seen_count INTEGER DEFAULT 1,
+                UNIQUE(name, start_datetime, origin)
+            )
+        """)
+        _execute(conn, """
+            CREATE INDEX IF NOT EXISTS idx_events_distinct_start
+            ON events_distinct(start_datetime)
+        """)
+        _execute(conn, """
+            CREATE INDEX IF NOT EXISTS idx_events_distinct_category
+            ON events_distinct(category)
+        """)
+        _execute(conn, """
+            CREATE INDEX IF NOT EXISTS idx_events_distinct_city
+            ON events_distinct(city)
+        """)
+        conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def rebuild_events_distinct(conn=None) -> int:
+    """Rebuild events_distinct from the raw events table.
+
+    Upserts all unique events (by name + start_datetime + origin).
+    Picks the most informative row per group (prefers rows with
+    detail_description, then latest created_at).
+    Preserves user-set ratings — only scraper-derived fields are updated.
+
+    Returns number of rows in events_distinct after rebuild.
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        # Save ratings before rebuild
+        saved_ratings = []
+        if _table_exists(conn, 'events_distinct'):
+            cur = _execute(conn,
+                "SELECT name, start_datetime, rating FROM events_distinct WHERE rating IS NOT NULL")
+            saved_ratings = cur.fetchall()
+
+        init_events_distinct_db(conn)
+
+        cur = _execute(conn, "SELECT COUNT(*) AS cnt FROM events_distinct")
+        before = cur.fetchone()["cnt"]
+
+        # Use CTE to pick the best (most informative) row per group,
+        # then join with aggregated counts for first/last seen.
+        _execute(conn, """
+            WITH ranked AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY name, start_datetime, origin
+                        ORDER BY
+                            CASE WHEN detail_description IS NOT NULL AND detail_description != '' THEN 0 ELSE 1 END,
+                            created_at DESC
+                    ) AS rn
+                FROM events
+                WHERE name IS NOT NULL AND name != ''
+            ),
+            best AS (
+                SELECT * FROM ranked WHERE rn = 1
+            ),
+            counts AS (
+                SELECT name, start_datetime, origin,
+                    MIN(created_at) AS first_seen_at,
+                    MAX(created_at) AS last_seen_at,
+                    COUNT(*) AS seen_count
+                FROM events
+                WHERE name IS NOT NULL AND name != ''
+                GROUP BY name, start_datetime, origin
+            )
+            INSERT INTO events_distinct (
+                name, description, location, start_datetime, end_datetime,
+                category, source, city, origin, event_url,
+                detail_description, detail_full_description,
+                first_seen_at, last_seen_at, seen_count
+            )
+            SELECT
+                best.name,
+                best.description,
+                best.location,
+                best.start_datetime,
+                best.end_datetime,
+                best.category,
+                best.source,
+                best.city,
+                best.origin,
+                best.event_url,
+                best.detail_description,
+                best.detail_full_description,
+                counts.first_seen_at,
+                counts.last_seen_at,
+                counts.seen_count
+            FROM best
+            JOIN counts ON best.name = counts.name
+                AND best.start_datetime = counts.start_datetime
+                AND COALESCE(best.origin, '') = COALESCE(counts.origin, '')
+            ON CONFLICT(name, start_datetime, origin) DO UPDATE SET
+                description = COALESCE(NULLIF(excluded.description, ''), events_distinct.description),
+                location = COALESCE(NULLIF(excluded.location, ''), events_distinct.location),
+                end_datetime = COALESCE(excluded.end_datetime, events_distinct.end_datetime),
+                category = COALESCE(NULLIF(excluded.category, ''), events_distinct.category),
+                source = COALESCE(NULLIF(excluded.source, ''), events_distinct.source),
+                city = COALESCE(NULLIF(excluded.city, ''), events_distinct.city),
+                event_url = COALESCE(NULLIF(excluded.event_url, ''), events_distinct.event_url),
+                detail_description = COALESCE(NULLIF(excluded.detail_description, ''), events_distinct.detail_description),
+                detail_full_description = COALESCE(NULLIF(excluded.detail_full_description, ''), events_distinct.detail_full_description),
+                last_seen_at = excluded.last_seen_at,
+                seen_count = excluded.seen_count
+        """)
+
+        # Fill empty fields from other rows in the same group
+        # (the "best" row may lack some fields that older rows have, e.g. city)
+        _execute(conn, """
+            UPDATE events_distinct SET
+                city = COALESCE(NULLIF(city, ''), (
+                    SELECT city FROM events
+                    WHERE events.name = events_distinct.name
+                        AND events.start_datetime = events_distinct.start_datetime
+                        AND city IS NOT NULL AND city != ''
+                    LIMIT 1
+                ))
+            WHERE city IS NULL OR city = ''
+        """)
+
+        # Restore saved ratings
+        if saved_ratings:
+            for row in saved_ratings:
+                _execute(conn,
+                    "UPDATE events_distinct SET rating = %s WHERE name = %s AND start_datetime = %s",
+                    (row["rating"], row["name"], row["start_datetime"]),
+                )
+            print(f"  Restored {len(saved_ratings)} user ratings")
+
+        conn.commit()
+
+        cur = _execute(conn, "SELECT COUNT(*) AS cnt FROM events_distinct")
+        after = cur.fetchone()["cnt"]
+        new_events = after - before
+        print(f"  events_distinct: {after} unique events ({new_events} new)")
+        return after
+    finally:
+        if own_conn:
+            conn.close()
+
+
 def get_events(
     since_days: int | None = None,
     limit: int = 200,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> list[dict[str, Any]]:
     """
     Load events for newsletter. If since_days is set, only return events
@@ -996,24 +1180,23 @@ def get_events(
     try:
         init_db(conn)
         if since_days is not None:
-            # SQLite: date(created_at) >= date('now', '-N days')
-            cur = conn.execute(
+            cur = _execute(conn,
                 """
                 SELECT id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, origin
                 FROM events
-                WHERE date(created_at) >= date('now', ?)
+                WHERE created_at::date >= CURRENT_DATE - %s * INTERVAL '1 day'
                 ORDER BY start_datetime DESC
-                LIMIT ?
+                LIMIT %s
                 """,
-                (f"-{since_days} days", limit),
+                (since_days, limit),
             )
         else:
-            cur = conn.execute(
+            cur = _execute(conn,
                 """
                 SELECT id, name, description, location, start_datetime, end_datetime, category, source, city, created_at, origin
                 FROM events
                 ORDER BY start_datetime DESC
-                LIMIT ?
+                LIMIT %s
                 """,
                 (limit,),
             )
@@ -1024,8 +1207,8 @@ def get_events(
                 "name": r["name"],
                 "description": r["description"] or "",
                 "location": r["location"] or "",
-                "start_datetime": r["start_datetime"],
-                "end_datetime": r["end_datetime"],
+                "start_datetime": r["start_datetime"].isoformat() if r["start_datetime"] else None,
+                "end_datetime": r["end_datetime"].isoformat() if r["end_datetime"] else None,
                 "category": r["category"] or "other",
                 "source": r["source"] or "",
                 "city": r["city"] or "",
@@ -1039,7 +1222,7 @@ def get_events(
             conn.close()
 
 
-def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def row_to_dict(row: dict) -> dict[str, Any]:
     """Convert DB row to dict for writer (name, description, location, start_datetime, end_datetime, category, source)."""
     return {
         "name": row["name"],
@@ -1057,7 +1240,7 @@ def insert_raw_summary(
     max_search: int,
     raw_summary: str,
     run_id: int | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
     cities: list[str] | None = None,
     search_queries: list[str] | None = None,
     fetch_urls: int = 0,
@@ -1069,18 +1252,19 @@ def insert_raw_summary(
     try:
         init_db(conn)
         now = datetime.utcnow().isoformat() + "Z"
-        import json
         cities_json = json.dumps(cities) if cities else None
         queries_json = json.dumps(search_queries) if search_queries else None
-        cur = conn.execute(
+        cur = _execute(conn,
             """
             INSERT INTO raw_summaries (run_id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (run_id, location or "", max_search, fetch_urls, cities_json, queries_json, raw_summary, now),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cur.lastrowid or 0
+        return row["id"] if row else 0
     finally:
         if own_conn:
             conn.close()
@@ -1089,33 +1273,32 @@ def insert_raw_summary(
 def get_raw_summaries(
     location: str | None = None,
     limit: int = 10,
-    conn: sqlite3.Connection | None = None,
+    conn=None,
 ) -> list[dict[str, Any]]:
     """Retrieve raw summaries for debugging."""
-    import json
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
         if location:
-            cur = conn.execute(
+            cur = _execute(conn,
                 """
                 SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
                 FROM raw_summaries
-                WHERE location = ?
+                WHERE location = %s
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT %s
                 """,
                 (location, limit),
             )
         else:
-            cur = conn.execute(
+            cur = _execute(conn,
                 """
                 SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
                 FROM raw_summaries
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT %s
                 """,
                 (limit,),
             )
@@ -1138,19 +1321,18 @@ def get_raw_summaries(
             conn.close()
 
 
-def get_raw_summary_by_id(summary_id: int, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+def get_raw_summary_by_id(summary_id: int, conn=None) -> dict[str, Any] | None:
     """Get a single raw summary by ID."""
-    import json
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
-        cur = conn.execute(
+        cur = _execute(conn,
             """
             SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
             FROM raw_summaries
-            WHERE id = ?
+            WHERE id = %s
             """,
             (summary_id,),
         )
@@ -1172,19 +1354,18 @@ def get_raw_summary_by_id(summary_id: int, conn: sqlite3.Connection | None = Non
             conn.close()
 
 
-def get_raw_summary_by_run_id(run_id: int, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+def get_raw_summary_by_run_id(run_id: int, conn=None) -> dict[str, Any] | None:
     """Get raw summary associated with a specific run ID."""
-    import json
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
-        cur = conn.execute(
+        cur = _execute(conn,
             """
             SELECT id, location, max_search, fetch_urls, cities, search_queries, raw_summary, created_at
             FROM raw_summaries
-            WHERE run_id = ?
+            WHERE run_id = %s
             """,
             (run_id,),
         )
@@ -1204,7 +1385,7 @@ def get_raw_summary_by_run_id(run_id: int, conn: sqlite3.Connection | None = Non
     finally:
         if own_conn:
             conn.close()
- 
+
 
 __all__ = [
     "get_connection",
