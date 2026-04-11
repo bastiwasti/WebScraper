@@ -62,6 +62,30 @@ def _migrate_status_table(conn) -> None:
         if not _column_exists(conn, 'status', 'events_llm'):
             _execute(conn, "ALTER TABLE status ADD COLUMN events_llm INTEGER DEFAULT 0")
             conn.commit()
+
+        if not _column_exists(conn, 'status', 'events_rated'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN events_rated INTEGER DEFAULT 0")
+            conn.commit()
+
+        if not _column_exists(conn, 'status', 'ratings_failed'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN ratings_failed INTEGER DEFAULT 0")
+            conn.commit()
+
+        if not _column_exists(conn, 'status', 'input_tokens'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN input_tokens INTEGER DEFAULT 0")
+            conn.commit()
+
+        if not _column_exists(conn, 'status', 'output_tokens'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN output_tokens INTEGER DEFAULT 0")
+            conn.commit()
+
+        if not _column_exists(conn, 'status', 'agent_type'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN agent_type TEXT")
+            conn.commit()
+
+        if not _column_exists(conn, 'status', 'filters'):
+            _execute(conn, "ALTER TABLE status ADD COLUMN filters TEXT")
+            conn.commit()
     except Exception as e:
         print(f"Warning: Failed to migrate status table: {e}")
         conn.rollback()
@@ -78,12 +102,128 @@ def _migrate_events_table(conn) -> None:
             conn.commit()
             print("Added 'origin' column to events table")
 
-            _execute(conn, "CREATE INDEX IF NOT EXISTS idx_events_origin ON events(origin)")
-            conn.commit()
-            print("Added index on 'origin' column")
+        _execute(conn, "CREATE INDEX IF NOT EXISTS idx_events_origin ON events(origin)")
+        conn.commit()
+        print("Added index on 'origin' column")
     except Exception as e:
         print(f"Warning: Failed to migrate events table: {e}")
         conn.rollback()
+
+
+def _migrate_runs_table(conn) -> None:
+    """Migrate runs table to drop deprecated agent column if it exists."""
+    try:
+        if not _table_exists(conn, 'runs'):
+            return
+
+        if _column_exists(conn, 'runs', 'agent'):
+            _execute(conn, "ALTER TABLE runs DROP COLUMN agent")
+            conn.commit()
+            print("Dropped deprecated 'agent' column from runs table")
+    except Exception as e:
+        print(f"Warning: Failed to migrate runs table: {e}")
+        conn.rollback()
+
+
+
+_weekend_dates_cache = None
+_weekend_dates_cache_time = None
+from datetime import datetime, timedelta as _dt_timedelta, date as _dt_date
+
+
+def _get_weekend_dates_with_unrated(conn, num_weekends: int, user_email: str = "deepseek", use_cache: bool = True) -> list[str]:
+    """Calculate dates for next N weekends that have unrated events.
+    
+    Args:
+        conn: Database connection
+        num_weekends: Number of weekends to find
+        user_email: User email to check for existing ratings
+        use_cache: Whether to use cached weekend dates (default True)
+    
+    Returns:
+        List of date strings in YYYY-MM-DD format
+    """
+    global _weekend_dates_cache, _weekend_dates_cache_time
+    
+    current_time = datetime.now()
+    cache_age = (current_time - _weekend_dates_cache_time).total_seconds() if _weekend_dates_cache_time else float('inf')
+    
+    if use_cache and _weekend_dates_cache and cache_age < 60:
+        return _weekend_dates_cache
+    
+    weekend_dates = []
+    current_date = _dt_date.today()
+    
+    # Find next Saturday
+    days_until_saturday = (5 - current_date.weekday()) % 7
+    if days_until_saturday == 0 and current_date.weekday() == 5:
+        days_until_saturday = 7
+    saturday = current_date + _dt_timedelta(days=days_until_saturday)
+    
+    cur = conn.cursor()
+    
+    # Find weekends with unrated events
+    week_num = 0
+    while len(weekend_dates) < num_weekends * 2 and week_num < 10:
+        saturday_date = saturday + _dt_timedelta(weeks=week_num)
+        sunday_date = saturday_date + _dt_timedelta(days=1)
+        
+        saturday_str = saturday_date.strftime('%Y-%m-%d')
+        sunday_str = sunday_date.strftime('%Y-%m-%d')
+        
+        # Check if there are unrated events on these dates
+        placeholders = ','.join(['%s'] * 2)
+        sql = f"""
+            SELECT COUNT(*) as count
+            FROM events_distinct e
+            LEFT JOIN event_ratings r ON e.id = r.event_id AND r.user_email = %s
+            WHERE e.start_datetime::date IN ({placeholders})
+            AND r.event_id IS NULL
+        """
+        cur.execute(sql, [user_email, saturday_str, sunday_str])
+        count_result = cur.fetchone()
+        
+        if count_result and count_result['count'] > 0:
+            weekend_dates.append(saturday_str)
+            weekend_dates.append(sunday_str)
+        
+        week_num += 1
+    
+    if use_cache:
+        _weekend_dates_cache = weekend_dates
+        _weekend_dates_cache_time = current_time
+    
+    return weekend_dates
+
+
+def _get_weekend_dates(num_weekends: int) -> list[str]:
+    """Calculate dates for next N weekends (Saturday and Sunday).
+    
+    Args:
+        num_weekends: Number of weekends to calculate
+    
+    Returns:
+        List of date strings in YYYY-MM-DD format
+    """
+    from datetime import date, timedelta
+    
+    weekend_dates = []
+    current_date = date.today()
+    
+    # Find next Saturday
+    days_until_saturday = (5 - current_date.weekday()) % 7
+    if days_until_saturday == 0 and current_date.weekday() == 5:
+        days_until_saturday = 7
+    saturday = current_date + timedelta(days=days_until_saturday)
+    
+    # Generate dates for N weekends
+    for week_num in range(num_weekends):
+        saturday_date = saturday + timedelta(weeks=week_num)
+        sunday_date = saturday_date + timedelta(days=1)
+        weekend_dates.append(saturday_date.strftime('%Y-%m-%d'))
+        weekend_dates.append(sunday_date.strftime('%Y-%m-%d'))
+    
+    return weekend_dates
 
 
 def init_db(conn=None) -> None:
@@ -91,11 +231,17 @@ def init_db(conn=None) -> None:
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
+    
+    required_tables = ['runs', 'status', 'events', 'raw_summaries']
+    all_tables_exist = all(_table_exists(conn, table) for table in required_tables)
+    
+    if all_tables_exist:
+        return
+    
     try:
         _execute(conn, """
             CREATE TABLE IF NOT EXISTS runs (
                 id SERIAL PRIMARY KEY,
-                agent TEXT NOT NULL,
                 cities TEXT,
                 created_at TEXT NOT NULL,
                 raw_summary_id INTEGER
@@ -114,14 +260,16 @@ def init_db(conn=None) -> None:
                 valid_events INTEGER DEFAULT 0,
                 events_regex INTEGER DEFAULT 0,
                 events_llm INTEGER DEFAULT 0,
+                events_rated INTEGER DEFAULT 0,
+                ratings_failed INTEGER DEFAULT 0,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                agent_type TEXT,
+                filters TEXT,
                 full_run INTEGER DEFAULT 0,
                 FOREIGN KEY (run_id) REFERENCES runs(id),
                 FOREIGN KEY (linked_run_id) REFERENCES runs(id)
             )
-        """)
-        _execute(conn, """
-            CREATE INDEX IF NOT EXISTS idx_status_run_id
-            ON status(run_id)
         """)
         _execute(conn, """
             CREATE TABLE IF NOT EXISTS events (
@@ -189,6 +337,7 @@ def init_db(conn=None) -> None:
         # Migrate existing tables to add new columns if needed
         _migrate_status_table(conn)
         _migrate_events_table(conn)
+        _migrate_runs_table(conn)
 
         conn.commit()
     finally:
@@ -197,7 +346,6 @@ def init_db(conn=None) -> None:
 
 
 def create_run(
-    agent: str,
     cities: list[str] | None = None,
     raw_summary_id: int | None = None,
     linked_run_id: int | None = None,
@@ -214,49 +362,53 @@ def create_run(
         # Convert cities list to comma-separated string
         cities_str = ",".join(cities) if cities else None
 
-        cur = _execute(conn,
-            """
-            INSERT INTO runs (agent, cities, created_at, raw_summary_id)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id
-            """,
-            (agent, cities_str, now, raw_summary_id),
-        )
-        row = cur.fetchone()
-        conn.commit()
-        return row["id"] if row else 0
+        # Check if agent column still exists (old schema)
+        agent_column_exists = _column_exists(conn, 'runs', 'agent')
+
+        if not agent_column_exists:
+            # New schema: no agent column
+            cur = _execute(conn,
+                """
+                INSERT INTO runs (cities, created_at, raw_summary_id)
+                VALUES (%s, %s, %s)
+                RETURNING id
+                """,
+                (cities_str, now, raw_summary_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row["id"] if row else 0
+        else:
+            # Old schema: agent column still exists, must provide a value
+            cur = _execute(conn,
+                """
+                INSERT INTO runs (agent, cities, created_at, raw_summary_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                ('rating', cities_str, now, raw_summary_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row["id"] if row else 0
     finally:
         if own_conn:
             conn.close()
 
 
-def append_to_agent(run_id: int, agent_name: str, conn=None) -> None:
-    """Append agent name to agent column (comma-separated)."""
+def update_run_cities(run_id: int, cities: list[str], conn=None) -> None:
+    """Update cities column with list of cities (comma-separated)."""
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
     try:
         init_db(conn)
-        # Get current agent string
-        cur = _execute(conn, "SELECT agent FROM runs WHERE id = %s", (run_id,))
-        row = cur.fetchone()
-        if row and row["agent"]:
-            current_agent = row["agent"]
-            # Append if not already present
-            if agent_name not in current_agent:
-                new_agent = f"{current_agent}, {agent_name}"
-                _execute(conn,
-                    "UPDATE runs SET agent = %s WHERE id = %s",
-                    (new_agent, run_id),
-                )
-                conn.commit()
-        else:
-            # Set initial agent
-            _execute(conn,
-                "UPDATE runs SET agent = %s WHERE id = %s",
-                (agent_name, run_id),
-            )
-            conn.commit()
+        cities_str = ",".join(cities) if cities else None
+        _execute(conn,
+            "UPDATE runs SET cities = %s WHERE id = %s",
+            (cities_str, run_id),
+        )
+        conn.commit()
     finally:
         if own_conn:
             conn.close()
@@ -271,7 +423,7 @@ def get_runs(limit: int = 20, conn=None) -> list[dict[str, Any]]:
         init_db(conn)
         cur = _execute(conn,
             """
-            SELECT r.id, r.agent, r.cities, r.created_at,
+            SELECT r.id, r.cities, r.created_at,
                     s.start_time, s.end_time, s.duration, s.events_found, s.valid_events, s.linked_run_id,
                     (SELECT COUNT(*) FROM events WHERE events.run_id = r.id) as event_count
             FROM runs r
@@ -285,7 +437,6 @@ def get_runs(limit: int = 20, conn=None) -> list[dict[str, Any]]:
         return [
             {
                 "id": r["id"],
-                "agent": r["agent"],
                 "cities": r["cities"] or "",
                 "created_at": r["created_at"],
                 "start_time": r["start_time"],
@@ -764,6 +915,7 @@ def create_run_status(
     full_run: bool = False,
     start_time: str | None = None,
     events_regex: int = 0,
+    events_rated: int = 0,
     conn=None,
 ) -> int:
     """Create a status row for a run."""
@@ -774,14 +926,32 @@ def create_run_status(
         init_db(conn)
         now = start_time if start_time else datetime.utcnow().isoformat() + "Z"
         urls_json = json.dumps(urls)
-        cur = _execute(conn,
-            """
-            INSERT INTO status (run_id, urls, start_time, full_run, events_regex)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (run_id, urls_json, now, full_run, events_regex),
-        )
+        full_run_int = 1 if full_run else 0
+        
+        # Check if events_rated column exists
+        events_rated_exists = _column_exists(conn, 'status', 'events_rated')
+        
+        if events_rated_exists:
+            # New schema: include events_rated
+            cur = _execute(conn,
+                """
+                INSERT INTO status (run_id, urls, start_time, full_run, events_regex, events_rated)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, urls_json, now, full_run_int, events_regex, events_rated),
+            )
+        else:
+            # Old schema: don't include events_rated (for backward compatibility)
+            cur = _execute(conn,
+                """
+                INSERT INTO status (run_id, urls, start_time, full_run, events_regex)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, urls_json, now, full_run_int, events_regex),
+            )
+        
         row = cur.fetchone()
         conn.commit()
         return row["id"] if row else 0
@@ -830,6 +1000,7 @@ def update_run_status_analyzed(
     valid_events: int,
     events_regex: int = 0,
     events_llm: int = 0,
+    events_rated: int = 0,
     linked_run_id: int | None = None,
     conn=None,
 ) -> None:
@@ -841,7 +1012,7 @@ def update_run_status_analyzed(
         init_db(conn)
         # Get current values
         cur = _execute(conn,
-            "SELECT events_found, valid_events, events_regex, events_llm, linked_run_id FROM status WHERE run_id = %s",
+            "SELECT events_found, valid_events, events_regex, events_llm, events_rated, linked_run_id FROM status WHERE run_id = %s",
             (run_id,)
         )
         row = cur.fetchone()
@@ -850,6 +1021,7 @@ def update_run_status_analyzed(
             current_valid_events = row["valid_events"] or 0
             current_events_regex = row["events_regex"] or 0
             current_events_llm = row["events_llm"] or 0
+            current_events_rated = row["events_rated"] or 0
             current_linked_run_id = row["linked_run_id"]
 
             # Calculate new values (ADD, not REPLACE)
@@ -857,6 +1029,7 @@ def update_run_status_analyzed(
             new_valid_events = current_valid_events + valid_events
             new_events_regex = current_events_regex + events_regex
             new_events_llm = current_events_llm + events_llm
+            new_events_rated = current_events_rated + events_rated
             new_linked_run_id = linked_run_id if linked_run_id else current_linked_run_id
 
             _execute(conn,
@@ -866,15 +1039,129 @@ def update_run_status_analyzed(
                     valid_events = %s,
                     events_regex = %s,
                     events_llm = %s,
+                    events_rated = %s,
                     linked_run_id = %s
                 WHERE run_id = %s
                 """,
-                (new_events_found, new_valid_events, new_events_regex, new_events_llm, new_linked_run_id, run_id),
+                (new_events_found, new_valid_events, new_events_regex, new_events_llm, new_events_rated, new_linked_run_id, run_id),
             )
             conn.commit()
     except Exception as e:
         print(f"Warning: Failed to update run status: {e}")
         conn.rollback()
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def create_rating_status(
+    run_id: int,
+    filters: dict | None = None,
+    conn=None,
+) -> int:
+    """Create a status row for rating agent."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        now = datetime.utcnow().isoformat() + "Z"
+        
+        # Convert filters dict to JSON string
+        filters_json = json.dumps(filters) if filters else None
+        
+        # Check which schema we're using
+        agent_type_exists = _column_exists(conn, 'status', 'agent_type')
+        filters_exists = _column_exists(conn, 'status', 'filters')
+        
+        if agent_type_exists and filters_exists:
+            # New schema: agent_type and filters columns exist
+            cur = _execute(conn,
+                """
+                INSERT INTO status (run_id, agent_type, filters, start_time)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, 'rating', filters_json, now),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row["id"] if row else 0
+        else:
+            # Old schema: agent_type and filters columns don't exist yet, use urls column
+            cur = _execute(conn,
+                """
+                INSERT INTO status (run_id, urls, start_time)
+                VALUES (%s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, filters_json, now),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row["id"] if row else 0
+    except Exception as e:
+        print(f"Warning: Failed to create rating status: {e}")
+        if own_conn:
+            conn.rollback()
+        return 0
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def update_rating_status_complete(
+    run_id: int,
+    events_rated: int,
+    ratings_failed: int,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    conn=None,
+) -> None:
+    """Update rating status row with completion metrics."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        init_db(conn)
+        
+        # Check which schema we're using
+        events_rated_exists = _column_exists(conn, 'status', 'events_rated')
+        agent_type_exists = _column_exists(conn, 'status', 'agent_type')
+        
+        if events_rated_exists and agent_type_exists:
+            # New schema: all columns exist
+            _execute(conn,
+                """
+                UPDATE status
+                SET events_rated = %s,
+                    ratings_failed = %s,
+                    input_tokens = %s,
+                    output_tokens = %s,
+                    end_time = %s,
+                    duration = EXTRACT(EPOCH FROM NOW() - start_time::timestamp)
+                WHERE run_id = %s AND agent_type = 'rating'
+                """,
+                (events_rated, ratings_failed, input_tokens, output_tokens,
+                 datetime.utcnow().isoformat() + "Z", run_id),
+            )
+            conn.commit()
+        else:
+            # Old schema: new columns don't exist yet
+            _execute(conn,
+                """
+                UPDATE status
+                SET end_time = %s,
+                    duration = EXTRACT(EPOCH FROM NOW() - start_time::timestamp)
+                WHERE run_id = %s
+                """,
+                (datetime.utcnow().isoformat() + "Z", run_id),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"Warning: Failed to update rating status: {e}")
+        if own_conn:
+            conn.rollback()
     finally:
         if own_conn:
             conn.close()
@@ -997,6 +1284,10 @@ def init_events_distinct_db(conn=None) -> None:
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
+    
+    if _table_exists(conn, 'events_distinct'):
+        return
+    
     try:
         _execute(conn, """
             CREATE TABLE IF NOT EXISTS events_distinct (
@@ -1013,7 +1304,7 @@ def init_events_distinct_db(conn=None) -> None:
                 event_url TEXT,
                 detail_description TEXT,
                 detail_full_description TEXT,
-                rating INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+                rating NUMERIC(3,1) CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
                 first_seen_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
                 seen_count INTEGER DEFAULT 1,
@@ -1387,12 +1678,204 @@ def get_raw_summary_by_run_id(run_id: int, conn=None) -> dict[str, Any] | None:
             conn.close()
 
 
+def count_unrated_events(
+    date_filter: str | None = None,
+    days_filter: int | None = None,
+    today_only: bool = False,
+    tomorrow_only: bool = False,
+    weekends_filter: int | None = None,
+    user_email: str = "deepseek",
+    conn=None
+) -> int:
+    """Count unrated events from events_distinct with optional date filters.
+    
+    Args:
+        date_filter: Only events on this specific date (YYYY-MM-DD)
+        days_filter: Only events within next N days
+        today_only: Only events from today
+        tomorrow_only: Only events from tomorrow
+        weekends_filter: Only events for next N weekends
+        user_email: User email to check for existing ratings (default: "deepseek")
+        conn: Optional database connection
+    
+    Returns:
+        Count of unrated events
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        sql = """
+            SELECT COUNT(*)
+            FROM events_distinct e
+            LEFT JOIN event_ratings r ON e.id = r.event_id AND r.user_email = %s
+            WHERE r.event_id IS NULL
+        """
+        params = [user_email]
+
+        if date_filter:
+            sql += " AND e.start_datetime::date = %s"
+            params.append(date_filter)
+        elif days_filter:
+            sql += " AND e.start_datetime::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL %s"
+            params.append(f"'{days_filter} days'")
+        elif today_only:
+            sql += " AND e.start_datetime::date = CURRENT_DATE"
+        elif tomorrow_only:
+            sql += " AND e.start_datetime::date = CURRENT_DATE + INTERVAL '1 day'"
+        elif weekends_filter:
+            weekend_dates = _get_weekend_dates_with_unrated(conn, weekends_filter, user_email)
+            if weekend_dates:
+                placeholders = ','.join(['%s'] * len(weekend_dates))
+                sql += f" AND e.start_datetime::date IN ({placeholders})"
+                params.extend(weekend_dates)
+            else:
+                return 0
+
+        cur = _execute(conn, sql, params)
+        row = cur.fetchone()
+        return row["count"] if row else 0
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_unrated_events(
+    limit: int = 20,
+    offset: int = 0,
+    date_filter: str | None = None,
+    days_filter: int | None = None,
+    today_only: bool = False,
+    tomorrow_only: bool = False,
+    weekends_filter: int | None = None,
+    user_email: str = "deepseek",
+    conn=None
+) -> list[dict]:
+    """Fetch unrated events from events_distinct with optional date filters.
+    
+    Args:
+        limit: Max events to return
+        offset: Pagination offset
+        date_filter: Only events on this specific date (YYYY-MM-DD)
+        days_filter: Only events within next N days
+        today_only: Only events from today
+        tomorrow_only: Only events from tomorrow
+        weekends_filter: Only events for next N weekends
+        user_email: User email to check for existing ratings (default: "deepseek")
+        conn: Optional database connection
+    
+    Returns:
+        List of event dicts with id, name, description, category, location, city, start_datetime
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        sql = """
+            SELECT e.id, e.name, e.description, e.category, e.location, e.city, e.start_datetime
+            FROM events_distinct e
+            LEFT JOIN event_ratings r ON e.id = r.event_id AND r.user_email = %s
+            WHERE r.event_id IS NULL
+        """
+        params = [user_email]
+
+        if date_filter:
+            sql += " AND e.start_datetime::date = %s"
+            params.append(date_filter)
+        elif days_filter:
+            sql += " AND e.start_datetime::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL %s"
+            params.append(f"'{days_filter} days'")
+        elif today_only:
+            sql += " AND e.start_datetime::date = CURRENT_DATE"
+        elif tomorrow_only:
+            sql += " AND e.start_datetime::date = CURRENT_DATE + INTERVAL '1 day'"
+        elif weekends_filter:
+            weekend_dates = _get_weekend_dates_with_unrated(conn, weekends_filter, user_email, use_cache=False)
+            if weekend_dates:
+                placeholders = ','.join(['%s'] * len(weekend_dates))
+                sql += f" AND e.start_datetime::date IN ({placeholders})"
+                params.extend(weekend_dates)
+            else:
+                return []
+
+        sql += " ORDER BY e.id ASC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+
+        cur = _execute(conn, sql, params)
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def insert_event_rating(
+    event_id: int,
+    rating: float,
+    rating_inhaltlich: float | None = None,
+    rating_ort: float | None = None,
+    rating_ausstattung: float | None = None,
+    rating_interaktion: float | None = None,
+    rating_kosten: float | None = None,
+    rating_reason: str | None = None,
+    user_email: str = "deepseek",
+    conn=None
+) -> bool:
+    """Insert a rating into event_ratings table with detailed criteria.
+
+    Args:
+        event_id: Event ID from events_distinct
+        rating: Overall rating value (1-5)
+        rating_inhaltlich: Content suitability rating (1-5)
+        rating_ort: Location/accessibility rating (1-5)
+        rating_ausstattung: Facilities for small children rating (1-5)
+        rating_interaktion: Interaction level rating (1-5)
+        rating_kosten: Cost rating (1-5)
+        rating_reason: Short explanation for the rating
+        user_email: User email (default: "deepseek")
+        conn: Optional database connection
+
+    Returns:
+        True if inserted successfully, False otherwise
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+    try:
+        _execute(conn, """
+            INSERT INTO event_ratings (
+                event_id, rating, rating_inhaltlich, rating_ort, rating_ausstattung,
+                rating_interaktion, rating_kosten, rating_reason, user_email, rated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (event_id, user_email) DO UPDATE
+            SET
+                rating = EXCLUDED.rating,
+                rating_inhaltlich = EXCLUDED.rating_inhaltlich,
+                rating_ort = EXCLUDED.rating_ort,
+                rating_ausstattung = EXCLUDED.rating_ausstattung,
+                rating_interaktion = EXCLUDED.rating_interaktion,
+                rating_kosten = EXCLUDED.rating_kosten,
+                rating_reason = EXCLUDED.rating_reason,
+                rated_at = EXCLUDED.rated_at
+        """, (
+            event_id, rating, rating_inhaltlich, rating_ort, rating_ausstattung,
+            rating_interaktion, rating_kosten, rating_reason, user_email
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        return False
+    finally:
+        if own_conn:
+            conn.close()
+
+
 __all__ = [
     "get_connection",
     "init_db",
     "create_run",
-    "append_to_agent",
     "get_runs",
+    "update_run_cities",
     "create_run_status",
     "update_run_status_complete",
     "update_run_status_analyzed",
@@ -1405,4 +1888,9 @@ __all__ = [
     "_parse_datetime",
     "get_raw_summary_by_id",
     "get_raw_summary_by_run_id",
+    "count_unrated_events",
+    "get_unrated_events",
+    "insert_event_rating",
+    "create_rating_status",
+    "update_rating_status_complete",
 ]

@@ -117,6 +117,17 @@ class TerminkalenderRegex(BaseRule):
                 # Use H1 date as default
                 date = current_h1_date or ""
 
+                # Extract detail URL from link
+                event_url = ""
+                link = div.find('a', class_='url date')
+                if link:
+                    href = link.get('href', '')
+                    if href:
+                        if href.startswith('/'):
+                            event_url = 'https://www.monheim.de' + href
+                        else:
+                            event_url = href
+
                 # Extract short description from abstract or csc-text
                 abstract_p = div.find('p', class_='abstract')
                 if abstract_p:
@@ -144,6 +155,7 @@ class TerminkalenderRegex(BaseRule):
                         source=self.url,
                         category=category,
                         origin=self.get_origin(),
+                        event_url=event_url,
                     ))
         
         print(f"[Terminkalender] HTML parsing returned {len(events)} events")
@@ -243,7 +255,7 @@ class TerminkalenderRegex(BaseRule):
     def fetch_level2_data(self, events: list[Event], raw_html: str | None = None) -> list[Event]:
         """Fetch Level 2 detail data for Monheim terminkalender events.
         
-        For each event, fetches the detail page and extracts:
+        For each event, fetches detail page and extracts:
         - detail_date: More accurate date
         - detail_time: Start time
         - detail_end_time: End time
@@ -253,66 +265,72 @@ class TerminkalenderRegex(BaseRule):
         
         Args:
             events: List of Event objects from Level 1 parsing.
-            raw_html: Raw HTML content from main page (for URL extraction).
+            raw_html: Raw HTML content from main page (not needed, URLs already in events).
         
         Returns:
             List of Event objects with Level 2 data in raw_data field.
         """
-        if not events or not raw_html:
+        if not events:
             return events
         
-        from bs4 import BeautifulSoup
-        import re
         import requests
+        import time
         
-        soup = BeautifulSoup(raw_html, 'html.parser')
-        
-        # Build mapping of event name -> detail URL
-        event_url_map = {}
-        
-        for div in soup.find_all('div', class_='info'):
-            link = div.find('a', class_='url date')
-            if not link:
-                continue
-            
-            href = link.get('href')
-            title = str(link.get('title')) if link.get('title') else ''
-            
-            if href and title and '/freizeit-tourismus/terminkalender/termin/' in str(href):
-                # Convert to full URL if relative
-                href_str = str(href)
-                if href_str.startswith('/'):
-                    href_str = 'https://www.monheim.de' + href_str
-                event_url_map[title] = href_str
-        
-        # Fetch detail pages and merge data
-        print(f"[Terminkalender Level 2] Fetching detail pages for {len(events)} events...")
+        # Deduplicate URLs to avoid redundant requests
+        url_cache = {}
+        events_by_url = {}
         
         for event in events:
-            detail_url = event_url_map.get(event.name, "")
+            detail_url = event.event_url or ""
+            if detail_url:
+                if detail_url not in events_by_url:
+                    events_by_url[detail_url] = []
+                events_by_url[detail_url].append(event)
+        
+        print(f"[Terminkalender Level 2] Fetching {len(events_by_url)} unique detail pages for {len(events)} events...")
+        
+        for detail_url in events_by_url.keys():
+            detail_data = None
             
-            if not detail_url:
-                # No detail URL found for this event, skip Level 2 scraping
-                continue
-            
-            event.event_url = detail_url
-            
-            try:
-                resp = requests.get(
-                    detail_url,
-                    timeout=15,
-                    headers={"User-Agent": "WeeklyMail/1.0"},
-                )
-                resp.raise_for_status()
-                detail_html = resp.text
+            # Retry logic: up to 2 retries with 2-second backoff
+            for attempt in range(3):
+                try:
+                    if attempt > 0:
+                        backoff = 2 ** attempt
+                        print(f"  Retry {attempt}/2 after {backoff}s backoff...")
+                        time.sleep(backoff)
+                    
+                    # Add 1-second delay between requests to avoid rate limiting
+                    if attempt == 0 and detail_url != list(events_by_url.keys())[0]:
+                        time.sleep(1)
+                    
+                    resp = requests.get(
+                        detail_url,
+                        timeout=15,
+                        headers={"User-Agent": "WeeklyMail/1.0"},
+                    )
+                    resp.raise_for_status()
+                    detail_html = resp.text
+                    
+                    detail_data = self.parse_detail_page(detail_html)
+                    
+                    if detail_data:
+                        url_cache[detail_url] = detail_data
+                        break
+                    else:
+                        print(f"  ✗ Failed to parse: {detail_url[:60]}...")
+                        break
                 
-                # Parse detail page
-                detail_data = self.parse_detail_page(detail_html)
-                
-                if detail_data:
+                except Exception as e:
+                    if attempt == 2:
+                        print(f"  ✗ Failed after 3 retries: {detail_url[:60]}... ({e})")
+                    continue
+            
+            # Apply cached detail data to all events with this URL
+            if detail_data:
+                for event in events_by_url[detail_url]:
                     event.raw_data = detail_data
                     
-                    # Update main event fields from Level 2 data
                     if 'detail_description' in detail_data and detail_data['detail_description']:
                         event.description = detail_data['detail_description']
                     if 'detail_location' in detail_data and detail_data['detail_location']:
@@ -326,16 +344,9 @@ class TerminkalenderRegex(BaseRule):
                     if 'detail_category' in detail_data and detail_data['detail_category']:
                         event.category = detail_data['detail_category']
                     
-                    event.source = detail_url  # Use detail URL as source when Level 2 succeeds
-                    print(f"  ✓ Fetched details for: {event.name[:50]}")
-                else:
-                    print(f"  ✗ Failed to parse details for: {event.name[:50]}")
-            
-            except Exception as e:
-                print(f"  ✗ Failed to fetch detail page {detail_url}: {e}")
-                continue
+                    event.source = detail_url
         
-        print(f"[Terminkalender Level 2] Completed: {sum(1 for e in events if e.raw_data)}/{len(events)} events with detail data")
+        print(f"[Terminkalender Level 2] Completed: {len(url_cache)}/{len(events_by_url)} unique URLs fetched, {sum(1 for e in events if e.raw_data)}/{len(events)} events with detail data")
         
         return events
-    
+

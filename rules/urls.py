@@ -40,6 +40,9 @@ CITY_URLS: Dict[str, Dict[str, str]] = {
     "burscheid": {
         "veranstaltungskalender": "https://www.burscheid.de/portal/seiten/veranstaltungskalender-900000009-40230.html",
     },
+    "duesseldorf": {
+        "schloss_benrath": "https://www.schloss-benrath.de/veranstaltungs-liste/angebote",
+    },
 
 }
 

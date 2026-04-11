@@ -111,6 +111,55 @@ def main() -> None:
         help="Maximum characters per chunk (default: 5000).",
     )
 
+    # --- Event rating feature ---
+    parser.add_argument(
+        "--rate-events",
+        action="store_true",
+        help="Rate unrated events using DeepSeek LLM.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=25,
+        help="Number of events to rate per LLM call (default: 25).",
+    )
+    parser.add_argument(
+        "--max-events",
+        type=int,
+        help="Limit total events to rate (optional, for testing).",
+    )
+    parser.add_argument(
+        "--no-tools",
+        action="store_true",
+        help="Use legacy prompt mode instead of tool-calling for rating.",
+    )
+    parser.add_argument(
+        "--date-filter",
+        metavar="DATE",
+        help="Only rate events on this date (YYYY-MM-DD format).",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        help="Only rate events within next N days.",
+    )
+    parser.add_argument(
+        "--today-only",
+        action="store_true",
+        help="Only rate events from today.",
+    )
+    parser.add_argument(
+        "--tomorrow-only",
+        action="store_true",
+        help="Only rate events from tomorrow.",
+    )
+    parser.add_argument(
+        "--weekends",
+        type=int,
+        metavar="N",
+        help="Only rate events for the next N weekends.",
+    )
+
     # --- Locations/Ausflüge feature ---
     parser.add_argument(
         "--locations",
@@ -130,11 +179,99 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # --- Dispatch locations commands (separate from events pipeline) ---
-    if args.locations:
-        from locations.cli import handle_command
-        handle_command(args)
+    # --- Dispatch rating commands (separate from events pipeline) ---
+    if args.rate_events:
+        from agents.rating_agent import RatingAgent
+        from storage import count_unrated_events, create_run, create_rating_status
+        from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+
+        # Create run_id for rating agent
+        run_id = create_run(None)
+
+        use_tools = not getattr(args, 'no_tools', False)
+        rater = RatingAgent(model=args.model, use_tools=use_tools, run_id=run_id)
+
+        mode_label = "tool-calling" if use_tools else "legacy prompt"
+        print(f"Starting event rating mode ({mode_label})...")
+        print(f"Batch size: {args.batch_size}")
+        print(f"Date filter: {args.date_filter or 'None'}")
+        print(f"Days filter: {args.days or 'None'}")
+        print(f"Today only: {args.today_only}")
+        print(f"Tomorrow only: {args.tomorrow_only}")
+        print(f"Weekends: {args.weekends or 'None'}")
+
+        filters = {
+            "date_filter": args.date_filter,
+            "days_filter": args.days,
+            "today_only": args.today_only,
+            "tomorrow_only": args.tomorrow_only,
+            "weekends_filter": args.weekends,
+        }
+
+        # Create status row for rating agent
+        create_rating_status(run_id, filters)
+
+        total_unrated = count_unrated_events(
+            date_filter=args.date_filter,
+            days_filter=args.days,
+            today_only=args.today_only,
+            tomorrow_only=args.tomorrow_only,
+            weekends_filter=args.weekends,
+        )
+
+        if args.max_events:
+            total_to_rate = min(args.max_events, total_unrated)
+            print(f"Max events: {args.max_events} (total available: {total_unrated})")
+        else:
+            total_to_rate = total_unrated
+            print(f"Total unrated events: {total_unrated}")
+        print()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("[cyan]{task.completed}/{task.total} events"),
+            TimeElapsedColumn(),
+        ) as progress:
+
+            task = progress.add_task("Rating events...", total=total_to_rate)
+            last_reported = 0
+
+            def on_progress(rated_count):
+                nonlocal last_reported
+                advance = rated_count - last_reported
+                if advance > 0:
+                    progress.update(task, advance=advance)
+                    last_reported = rated_count
+
+            result = rater.run(
+                filters=filters,
+                max_events=args.max_events,
+                batch_size=args.batch_size,
+                verbose=args.verbose,
+                progress_callback=on_progress,
+            )
+
+            # Final progress sync
+            final_advance = result["total_rated"] - last_reported
+            if final_advance > 0:
+                progress.update(task, advance=final_advance)
+
+        print(f"\n✓ Rated {result['total_rated']} events successfully")
+        print(f"Rating run ID: {run_id}")
+        print(f"Input tokens: {result['input_tokens']}")
+        print(f"Output tokens: {result['output_tokens']}")
+
+        if result["failed_events"]:
+            print(f"⚠ Failed to rate {len(result['failed_events'])} events")
+            if args.verbose:
+                print(f"  Failed event IDs: {result['failed_events']}")
+
         sys.exit(0)
+
+    # --- Dispatch locations commands (separate from events pipeline) ---
 
     def resolve_url(url_or_folder: str) -> str:
         """Resolve --url argument to actual URL.
@@ -211,9 +348,11 @@ def main() -> None:
             print("Pipeline runs:")
             for r in runs:
                 duration = f"{r['duration']:.2f}s" if r.get('duration') else "N/A"
-                print(f"  Run ID {r['id']} | Agent: {r['agent']} | Events found: {r['events_found']} | Valid: {r['valid_events']} | Event count: {r['event_count']} | Created: {r['created_at']}")
+                print(f"  Run ID {r['id']} | Events found: {r['events_found']} | Valid: {r['valid_events']} | Event count: {r['event_count']} | Created: {r['created_at']}")
                 if r.get('start_time'):
                     print(f"    Duration: {duration}")
+                if r.get('cities'):
+                    print(f"    Cities: {r['cities']}")
                 if r.get('linked_run_id'):
                     print(f"    Linked to: {r['linked_run_id']}")
         sys.exit(0)
@@ -273,7 +412,7 @@ def main() -> None:
         print(f"LLM: {LLM_PROVIDER.upper()} | Model: {args.model} | DB: {not args.no_db}\n")
         
         analyzer = AnalyzerAgent(model=args.model)
-        new_run_id = create_run("analyzer", None)
+        new_run_id = create_run(raw_summary_data.get('cities'))
         
         structured_events = analyzer.run(
             new_run_id,
@@ -332,7 +471,7 @@ def main() -> None:
             scraper = ScraperAgent(model=args.model)
             
             if not args.no_db:
-                run_id = create_run("scraper", args.location)
+                run_id = create_run(args.cities)
             else:
                 run_id = 0
             
@@ -362,7 +501,7 @@ def main() -> None:
         elif args.agent == "analyzer":
             analyzer = AnalyzerAgent(model=args.model)
             raw_summary = input("Paste raw summary text:\n")
-            run_id = create_run("analyzer", None)
+            run_id = create_run(None)
             structured_events = analyzer.run(run_id, raw_summary, save_to_db=not args.no_db)
             print("--- Structured events (Agent 2) ---")
             print(structured_events)

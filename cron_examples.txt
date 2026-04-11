@@ -1,0 +1,20 @@
+# Cron job examples for rating events
+# Add to crontab with: crontab -e
+
+# Rate events for next 4 weekends every Sunday at 2:00 AM
+# This ensures upcoming weekend events are rated before the weekend
+0 2 * * 0 python3 /home/vscode/projects/WebScraper/main.py --rate-events --weekends 4
+
+# Rate events for next 2 weekends every Friday at 8:00 PM
+# Rates events for the immediate upcoming weekend
+0 20 * * 5 python3 /home/vscode/projects/WebScraper/main.py --rate-events --weekends 2
+
+# Rate all upcoming events for next 7 days every Monday at 3:00 AM
+# Alternative approach - rate by days instead of weekends
+0 3 * * 1 python3 /home/vscode/projects/WebScraper/main.py --rate-events --days 7
+
+# Log output to file
+# 0 2 * * 0 python3 /home/vscode/projects/WebScraper/main.py --rate-events --weekends 4 >> /var/log/rating.log 2>&1
+
+# Example cron with virtualenv activation
+# 0 2 * * 0 /home/user/.venv/bin/python /home/vscode/projects/WebScraper/main.py --rate-events --weekends 4

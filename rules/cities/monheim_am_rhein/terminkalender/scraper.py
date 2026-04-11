@@ -85,10 +85,6 @@ class TerminkalenderScraper(BaseScraper):
         
         This is used by the rules system for Level 2 scraping.
         """
-        """Fetch raw HTML content from terminkalender URL.
-        
-        This is used by the regex parser when it needs to parse HTML directly.
-        """
         import requests
         from bs4 import BeautifulSoup
         

@@ -1,7 +1,7 @@
 """Orchestrates two-agent pipeline: Scraper -> Analyzer, and stores events in DB."""
 
 from agents import ScraperAgent, AnalyzerAgent
-from storage import insert_events, insert_raw_summary, create_run, update_run_status_analyzed, create_run_status, append_to_agent, update_run_status_complete
+from storage import insert_events, insert_raw_summary, create_run, update_run_status_analyzed, create_run_status, update_run_status_complete, update_run_cities
 from rules import Event
 
 
@@ -34,7 +34,6 @@ def run_pipeline(
         create_run,
         insert_raw_summary,
         create_run_status,
-        append_to_agent,
         update_run_status_complete,
         update_run_status_analyzed,
         insert_events,
@@ -47,7 +46,6 @@ def run_pipeline(
 
     # Create single run_id for the entire pipeline
     run_id = create_run(
-        agent="scraper",
         cities=cities,
     )
 
@@ -109,9 +107,12 @@ def run_pipeline(
             print(f"ERROR processing events from {url}: {e}")
             continue
     
-    # Append "analyzer" to agent column
-    if save_to_db and all_structured_events:
-        append_to_agent(run_id, "analyzer")
+    # Extract unique cities from scraped URLs (filter out _regex suffix)
+    scraped_cities = sorted(set(k for k in city_event_counts.keys() if not k.endswith('_regex')))
+    
+    # Update cities column with actual scraped cities
+    if save_to_db and scraped_cities:
+        update_run_cities(run_id, scraped_cities)
     
     # Calculate totals
     events_found = len(all_structured_events)
@@ -128,6 +129,7 @@ def run_pipeline(
             valid_events,
             events_regex=total_regex_events,
             events_llm=llm_events_total,
+            events_rated=valid_events,
             linked_run_id=None,
         )
     

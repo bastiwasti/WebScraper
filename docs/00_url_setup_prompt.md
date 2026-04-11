@@ -38,19 +38,20 @@ User provides:
 6. Register URL in `rules/urls.py`
 7. Test with `python3 main.py --url {url} --no-db --verbose`
 8. Fix issues with up to 3 self-correction attempts
-9. Create summary file: `docs/autonomous/2x_{city}_autonomous_{timestamp}.md` (ISO 8601 format)
+9. Run with database write: `python3 main.py --url {url} --verbose` and verify records saved (see Final Verification Workflow)
+10. Create summary file: `docs/autonomous/2x_{city}_autonomous_{timestamp}.md` (ISO 8601 format)
 
 ## 7 Proven Patterns
 
 | # | Pattern | Reference | When to Use | Critical Verification |
 |---|---------|-----------|--------------|----------------------|
-| 1 | REST API (JSON) | `rules/cities/leverkusen/lust_auf/` | URL has `/api/`, `/wp-json/`, `tribe/events` | Verify API returns event data |
+| 1 | REST API (JSON) | `rules/cities/leverkusen/lust_auf/`, `rules/cities/hilden/veranstaltungen/` | URL has `/api/`, `/wp-json/`, `tribe/events`, or JSON endpoint | Verify API returns event data |
 | 2 | Static HTML | `rules/cities/langenfeld/city_events/` | Plain HTML, no JS | Verify event elements exist |
 | 3 | Static + 2-Level | `rules/cities/langenfeld/schauplatz/` | Detail page links available | Verify detail pages load |
-| 4 | Dynamic + Load More | `rules/cities/monheim/terminkalender/` | JavaScript + "Load More" button | **Verify new events load after clicking** |
+| 4 | Dynamic + Load More | `rules/cities/monheim_am_rhein/terminkalender/` | JavaScript + "Load More" button | **Verify new events load after clicking** |
 | 5 | Static + Pagination | `rules/cities/dormagen/feste_veranstaltungen/` | URL parameters `?page=` in pagination | **CRITICAL: Verify page 1 ≠ page 2** |
-| 6 | 2-Level Extraction | All Level 2 scrapers | Detail pages with richer data | Verify raw_data populates |
-| 7 | Custom HTML Parsing | `rules/cities/monheim/terminkalender/regex.py` | Non-standard structures | Verify regex patterns match |
+| 6 | 2-Level Extraction | `rules/cities/hilden/veranstaltungen/`, `rules/cities/monheim_am_rhein/terminkalender/` | Detail pages via `fetch_level2_data()` | Verify raw_data populates |
+| 7 | Custom HTML Parsing | `rules/cities/monheim_am_rhein/terminkalender/regex.py` | Non-standard structures | Verify regex patterns match |
 
 ## Pagination Verification (CRITICAL)
 
@@ -388,9 +389,20 @@ Create analysis file: `investigation_{city}.md` containing:
 - Use `categories.infer_category()` and `categories.normalize_category()`
 - Use `utils.normalize_date()` and `utils.normalize_time()`
 - Set `needs_browser` property correctly
-- Register URL in `CITY_URLS` dictionary
+- Register URL in `CITY_URLS` dictionary (or `AGGREGATOR_URLS` for aggregator scrapers)
 - **Pagination Verification**: If using Pattern 4 or 5, verify pages contain different content before implementing
 - **Set `MAX_PAGES = 1`** if all events appear on first page (same content on `/page/2/`)
+
+### Aggregator Scrapers
+
+In addition to city scrapers in `rules/cities/`, the system has aggregator scrapers in `rules/aggregators/` (e.g., `rausgegangen`, `eventim`). Aggregators pull events from third-party platforms rather than city websites.
+
+Key differences from city scrapers:
+- Aggregator URLs are registered in `AGGREGATOR_URLS` (not `CITY_URLS`) in `rules/urls.py`
+- Directory structure: `rules/aggregators/{aggregator_name}/` (no city subfolder)
+- Aggregator entries map `{city_slug: url}` to cover multiple cities from one source
+
+When implementing a new scraper, determine whether the source is a city website (use `rules/cities/`) or a third-party aggregator (use `rules/aggregators/`).
 
 ## Required Event Fields
 
@@ -400,7 +412,9 @@ Create analysis file: `investigation_{city}.md` containing:
 - date (required): DD.MM.YYYY format
 - time (required): HH:MM format
 - source (required): Source URL
+- origin (required): Set via `self.get_origin()` — identifies which scraper produced the event
 - category (inferred): Use category system
+- city (auto-populated): City name, typically set automatically
 - event_url (optional): Detail page URL
 - end_time (optional): End time if available
 - raw_data (optional): Level 2 data
@@ -585,13 +599,14 @@ Timestamp format: `YYYY-MM-DDTHH:MM:SS`
 - Events extracted (count > 0)
 - All required fields populated
 - Category inferred correctly
-- Test run successful
+- Test run successful (`--no-db` mode)
+- Database run successful — events saved and verified via `--list-runs` or direct query
 - Registry auto-discovers new scraper
 - Summary file created with correct naming
 
 ## Resources
 
-- `docs/00_url_setup_prompt.md` - Complete setup guide (380 lines)
+- `docs/00_url_setup_prompt.md` - Complete setup guide
 - `14_categories.md` - Category system (480 lines)
 - `01_setup_guide.md` - Detailed setup guide (1,800 lines)
 - `rules/categories.py` - 10 categories, keywords
