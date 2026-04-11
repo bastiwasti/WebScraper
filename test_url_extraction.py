@@ -1,7 +1,7 @@
 """Test URL extraction from Monheim calendar page."""
 
 import sys
-from rules.cities.monheim.terminkalender.regex import TerminkalenderRegex
+from rules.cities.monheim_am_rhein.terminkalender.regex import TerminkalenderRegex
 
 # Mock HTML with event detail URLs (matches actual Monheim structure)
 MOCK_CALENDAR_HTML = '''
