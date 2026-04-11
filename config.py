@@ -31,6 +31,10 @@ PG_USER = os.getenv("PG_USER", "webscraper")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "webscraper")
 PG_SCHEMA = os.getenv("PG_SCHEMA", "webscraper")
 
+# Ollama configuration
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemma2:2b")
+
 # Legacy SQLite path (used by migration script only)
 _data_dir = Path(__file__).resolve().parent / "data"
 SQLITE_DB_PATH = str(_data_dir / "events.db")

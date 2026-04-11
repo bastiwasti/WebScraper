@@ -1,0 +1,11 @@
+SHELL=/bin/bash
+
+# Täglich 0:00 Uhr: scrapen, danach sofort nächste 7 Tage raten
+0 0 * * * . /app/.cron_env && cd /app && python main.py --agent all --full-run >> /app/logs/daily_scrape_$(date +\%Y\%m\%d).log 2>&1 && python main.py --rate-events --simple --batch-size 3 --days 7 >> /app/logs/daily_rate_$(date +\%Y\%m\%d).log 2>&1
+
+# Wöchentlich Sonntag 4:00 Uhr: nächste 30 Tage raten (zukünftige Events)
+0 4 * * 0 . /app/.cron_env && cd /app && python main.py --rate-events --simple --batch-size 3 --days 30 >> /app/logs/weekly_rate_$(date +\%Y\%m\%d).log 2>&1
+
+# Log-Rotation: Logs älter als 30 Tage löschen, Sonntag 5:00 Uhr
+0 5 * * 0 find /app/logs/ -name '*.log' -mtime +30 -delete
+

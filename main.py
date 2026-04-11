@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from config import DEFAULT_LOCATION, LLM_PROVIDER, DEEPSEEK_MODEL
+from config import DEFAULT_LOCATION, LLM_PROVIDER, DEEPSEEK_MODEL, LLM_MODEL
 from storage import get_runs
 from pipeline import run_pipeline
 
@@ -53,8 +53,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         "-m",
-        default=DEEPSEEK_MODEL,
-        help=f"Model name (default: {LLM_PROVIDER.upper()} model {DEEPSEEK_MODEL}).",
+        default=LLM_MODEL if LLM_PROVIDER == "ollama" else DEEPSEEK_MODEL,
+        help=f"Model name (default: {LLM_PROVIDER.upper()} model).",
     )
     parser.add_argument(
         "--verbose",
@@ -134,6 +134,11 @@ def main() -> None:
         help="Use legacy prompt mode instead of tool-calling for rating.",
     )
     parser.add_argument(
+        "--simple",
+        action="store_true",
+        help="Use simplified prompt for small Ollama models (rating + reason only, max batch 3).",
+    )
+    parser.add_argument(
         "--date-filter",
         metavar="DATE",
         help="Only rate events on this date (YYYY-MM-DD format).",
@@ -189,9 +194,10 @@ def main() -> None:
         run_id = create_run(None)
 
         use_tools = not getattr(args, 'no_tools', False)
-        rater = RatingAgent(model=args.model, use_tools=use_tools, run_id=run_id)
+        simple = getattr(args, 'simple', False)
+        rater = RatingAgent(model=args.model, use_tools=use_tools, run_id=run_id, simple=simple)
 
-        mode_label = "tool-calling" if use_tools else "legacy prompt"
+        mode_label = "simple (Ollama)" if simple else ("tool-calling" if use_tools else "legacy prompt")
         print(f"Starting event rating mode ({mode_label})...")
         print(f"Batch size: {args.batch_size}")
         print(f"Date filter: {args.date_filter or 'None'}")

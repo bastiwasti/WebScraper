@@ -94,6 +94,36 @@ USER_PROMPT = """Bewerten Sie die folgenden Veranstaltungen aus der Perspektive 
 {events_json}
 """
 
+# Simplified prompt for small models (e.g. Ollama gemma2:2b)
+# Outputs only rating + reason, no sub-criteria. Max batch size: 3.
+SIMPLE_PROMPT_SINGLE = """Bewerte diese Veranstaltung für eine Familie mit 2 Kleinkindern (unter 6 Jahre) aus Monheim am Rhein.
+
+Skala:
+5 = Perfekt für Kleinkinder (Spielen, Basteln, Tiere, Natur, kostenlos)
+4 = Gut geeignet
+3 = Geht so, vielleicht interessant
+2 = Eher nicht für Kleinkinder
+1 = Ungeeignet (Erwachsenenveranstaltung, weit weg, teuer)
+
+Antworte NUR mit JSON, kein Text darum: {{"event_id": <id>, "rating": <1-5>, "reason": "<1 Satz auf Deutsch>"}}
+
+Event:
+{event_json}"""
+
+SIMPLE_PROMPT_BATCH = """Bewerte diese Veranstaltungen für eine Familie mit 2 Kleinkindern (unter 6 Jahre) aus Monheim am Rhein.
+
+Skala:
+5 = Perfekt für Kleinkinder (Spielen, Basteln, Tiere, Natur, kostenlos)
+4 = Gut geeignet
+3 = Geht so, vielleicht interessant
+2 = Eher nicht für Kleinkinder
+1 = Ungeeignet (Erwachsenenveranstaltung, weit weg, teuer)
+
+Antworte NUR mit JSON-Array, kein Text darum: [{{"event_id": <id>, "rating": <1-5>, "reason": "<1 Satz auf Deutsch>"}}]
+
+Events:
+{events_json}"""
+
 
 # --- Tool schemas for DeepSeek function calling ---
 
@@ -152,17 +182,18 @@ SUBMIT_RATINGS_SCHEMA = {
 
 class RatingAgent:
     """Rates events based on family-friendliness for a family with 2 kids under 6.
- 
-    Supports two modes:
+
+    Supports three modes:
     - Tool-calling (default): DeepSeek calls get_unrated_events/submit_ratings tools
     - Legacy (use_tools=False): Original prompt→JSON→parse approach
+    - Simple (simple=True): Lightweight prompt for small models (Ollama), outputs rating+reason only, max batch 3
     """
 
-    def __init__(self, model: str | None = None, use_tools: bool = True, run_id: int | None = None):
+    def __init__(self, model: str | None = None, use_tools: bool = True, run_id: int | None = None, simple: bool = False):
         from config import LLM_PROVIDER
-        from langchain_openai import ChatOpenAI
 
         if LLM_PROVIDER == "deepseek" and DEEPSEEK_API_KEY:
+            from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
                 model=model or DEEPSEEK_MODEL,
                 api_key=lambda: DEEPSEEK_API_KEY,
@@ -170,7 +201,21 @@ class RatingAgent:
                 temperature=0.0,
                 timeout=300,
             )
+        elif LLM_PROVIDER == "ollama":
+            from config import OLLAMA_BASE_URL, LLM_MODEL
+            from langchain_ollama import ChatOllama
+            self.llm = ChatOllama(
+                model=model or LLM_MODEL,
+                base_url=OLLAMA_BASE_URL,
+                temperature=0.0,
+                client_kwargs={"timeout": 600},
+            )
+            # gemma2 and other Ollama models don't support function calling
+            use_tools = False
+        else:
+            raise ValueError(f"LLM_PROVIDER '{LLM_PROVIDER}' not configured or missing API key.")
         self.use_tools = use_tools
+        self.simple = simple
         self.run_id = run_id
         self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
@@ -353,6 +398,8 @@ class RatingAgent:
         Returns:
             Dict with total_rated, failed_events
         """
+        if self.simple:
+            return self._run_simple(filters, max_events, batch_size, verbose, progress_callback)
         if not self.use_tools:
             return self._run_legacy(filters, max_events, batch_size, verbose, progress_callback)
 
@@ -579,3 +626,160 @@ class RatingAgent:
             return [data] if isinstance(data, dict) else []
         except json.JSONDecodeError:
             return []
+
+    # --- Simple mode (lightweight prompt for small Ollama models) ---
+
+    def rate_events_batch_simple(self, events: list[dict]) -> list[dict]:
+        """Rate up to 3 events using the simplified prompt (rating + reason only)."""
+        if not events:
+            return []
+
+        events_serializable = []
+        for ev in events:
+            ev_copy = ev.copy()
+            if ev_copy.get("start_datetime"):
+                ev_copy["start_datetime"] = ev_copy["start_datetime"].isoformat()
+            events_serializable.append(ev_copy)
+
+        if len(events_serializable) == 1:
+            prompt_text = SIMPLE_PROMPT_SINGLE.format(
+                event_json=json.dumps(events_serializable[0], ensure_ascii=False, indent=2)
+            )
+        else:
+            prompt_text = SIMPLE_PROMPT_BATCH.format(
+                events_json=json.dumps(events_serializable, ensure_ascii=False, indent=2)
+            )
+
+        for attempt in range(3):
+            try:
+                from langchain_core.messages import HumanMessage
+                response = self.llm.invoke([HumanMessage(content=prompt_text)])
+                self._track_tokens(response)
+                raw = response.content
+
+                parsed = self._parse_json_array(raw)
+                # Single-event response may come back as a dict, not a list
+                if isinstance(parsed, dict):
+                    parsed = [parsed]
+                if not parsed and len(events_serializable) == 1:
+                    # Try parsing as single object
+                    try:
+                        obj = json.loads(raw.strip().strip("```json").strip("```").strip())
+                        if isinstance(obj, dict):
+                            parsed = [obj]
+                    except json.JSONDecodeError:
+                        pass
+
+                # Map to validated format (only rating + reason, no sub-criteria)
+                validated = []
+                for r in parsed:
+                    event_id = r.get("event_id")
+                    rating = r.get("rating")
+                    if not isinstance(event_id, int) or not isinstance(rating, (int, float)):
+                        continue
+                    validated.append({
+                        "event_id": event_id,
+                        "rating": max(1.0, min(5.0, float(rating))),
+                        "reason": str(r.get("reason", ""))[:200],
+                    })
+
+                if validated:
+                    return validated
+                print(f"  ⚠ Attempt {attempt + 1}: No valid ratings parsed")
+
+            except Exception as e:
+                print(f"  ⚠ Attempt {attempt + 1}: Error - {e}")
+
+        return []
+
+    def _run_simple(
+        self,
+        filters: dict | None = None,
+        max_events: int | None = None,
+        batch_size: int = 3,
+        verbose: bool = False,
+        progress_callback=None,
+    ) -> dict:
+        """Run simple rating mode for small Ollama models. Max batch size capped at 3."""
+        from storage import get_unrated_events, insert_event_rating
+
+        filters = filters or {}
+        batch_size = min(batch_size, 3)  # hard cap
+        total_rated = 0
+        failed_events = []
+        offset = 0
+        self._total_input_tokens = 0
+        self._total_output_tokens = 0
+
+        while True:
+            if max_events and total_rated >= max_events:
+                break
+
+            limit = min(batch_size, max_events - total_rated) if max_events else batch_size
+            events = get_unrated_events(
+                limit=limit,
+                offset=offset,
+                date_filter=filters.get("date_filter"),
+                days_filter=filters.get("days_filter"),
+                today_only=filters.get("today_only", False),
+                tomorrow_only=filters.get("tomorrow_only", False),
+                weekends_filter=filters.get("weekends_filter"),
+            )
+
+            if not events:
+                break
+
+            if verbose:
+                print(f"\n--- Batch {len(events)} events (offset {offset}) ---")
+                for ev in events:
+                    print(f"  ID {ev['id']}: {ev['name'][:50]}")
+
+            ratings = self.rate_events_batch_simple(events)
+
+            if not ratings:
+                print(f"  ⚠ Batch failed, skipping {len(events)} events")
+                failed_events.extend([e["id"] for e in events])
+                offset += len(events)
+                total_rated += len(events)
+                if progress_callback:
+                    progress_callback(total_rated)
+                continue
+
+            for rating in ratings:
+                insert_event_rating(
+                    event_id=rating["event_id"],
+                    rating=rating["rating"],
+                    rating_inhaltlich=None,
+                    rating_ort=None,
+                    rating_ausstattung=None,
+                    rating_interaktion=None,
+                    rating_kosten=None,
+                    rating_reason=rating.get("reason", ""),
+                    user_email="ollama",
+                )
+
+            if verbose:
+                for r in ratings:
+                    print(f"    ID {r['event_id']}: {r['rating']}/5 — {r.get('reason', '')}")
+
+            total_rated += len(ratings)
+            offset += len(events)
+            if progress_callback:
+                progress_callback(total_rated)
+
+        if self.run_id:
+            from storage import update_rating_status_complete
+            update_rating_status_complete(
+                self.run_id,
+                events_rated=total_rated,
+                ratings_failed=len(failed_events),
+                input_tokens=self._total_input_tokens,
+                output_tokens=self._total_output_tokens,
+            )
+
+        return {
+            "total_rated": total_rated,
+            "failed_events": failed_events,
+            "input_tokens": self._total_input_tokens,
+            "output_tokens": self._total_output_tokens,
+        }
