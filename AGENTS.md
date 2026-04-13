@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-WebScraper is a Python-based two-agent LLM pipeline for scraping and analyzing local events from cities around Monheim am Rhein, Germany.
+WebScraper is a Python-based three-agent LLM pipeline for scraping, analyzing, and rating local events from cities around Monheim am Rhein, Germany.
 
 ### System Type
-- **Pipeline**: Scraper Agent → Analyzer Agent → PostgreSQL Database
-- **LLM Provider**: DeepSeek (deepseek-chat)
-- **Scale**: 10,000+ events from 30+ sources across 8 cities
+- **Pipeline**: Scraper Agent → Analyzer Agent → Rating Agent → PostgreSQL Database
+- **LLM Provider**: DeepSeek (default, cloud) or Ollama (local, `--simple` mode)
+- **Scale**: 12,000+ events from 30+ sources across 9 cities
 
 ### Geography
 Target cities around Monheim am Rhein:
@@ -19,6 +19,7 @@ Target cities around Monheim am Rhein:
 - hitdorf
 - leichlingen
 - burscheid
+- duesseldorf
 
 ---
 
@@ -26,10 +27,11 @@ Target cities around Monheim am Rhein:
 
 | Task | Command/Documentation |
 |-------|-------------------|
-| Run full pipeline | `python main.py --cities all` |
+| Run full pipeline | `python main.py --agent all --full-run` |
 | Test single URL | `python main.py --url {url} --no-db --verbose` |
+| Rate events (DeepSeek) | `python main.py --rate-events --days 7` |
+| Rate events (Ollama) | `python main.py --rate-events --simple --batch-size 3 --days 7` |
 | Add new city scraper | See `docs/00_url_setup_prompt.md` |
-| View database | Use MCP tools: `webscraper_db_read_query` |
 | Debug scraper | See `docs/99_agent_errors.md` patterns |
 | Database schema | All tables are in `webscraper` schema (not `public`) |
 
@@ -43,18 +45,18 @@ Target cities around Monheim am Rhein:
 │   (main.py)     │      │   Orchestrator  │      │  (PostgreSQL)   │
 └─────────────────┘      └─────────────────┘      └─────────────────┘
                                  │
-             ┌───────────────────┼───────────────────┐
+             ┌───────────────────┼────────────────────┐
+             ▼                   ▼                    ▼
+      ┌─────────────┐    ┌─────────────┐    ┌──────────────┐
+      │  Scraper    │    │  Analyzer   │    │   Rating     │
+      │  Agent 1    │───▶│  Agent 2    │───▶│   Agent 3    │
+      └─────────────┘    └─────────────┘    └──────────────┘
+             │                   │                   │
              ▼                   ▼                   ▼
       ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-      │  Scraper    │    │  Analyzer   │    │  Database   │
-      │  Agent 1    │────▶│  Agent 2    │────▶│   Layer     │
+      │  URL Rules  │    │    LLM      │    │  DeepSeek   │
+      │   System    │    │  Provider   │    │  or Ollama  │
       └─────────────┘    └─────────────┘    └─────────────┘
-             │                   │
-             ▼                   ▼
-      ┌─────────────┐    ┌─────────────┐
-      │  URL Rules  │    │    LLM      │
-      │   System    │    │  Provider   │
-      └─────────────┘    └─────────────┘
 ```
 
 ### Agent Responsibilities
@@ -75,6 +77,14 @@ Target cities around Monheim am Rhein:
 - Infer categories using keyword-based system
 - Save events to database
 - Track metrics (events found, valid events, duration)
+
+**Rating Agent (Agent 3)**:
+- Rates events for family-friendliness (family with 2 kids under 6, Monheim am Rhein)
+- **Tool-calling mode** (default, DeepSeek): structured function calls, 5 sub-criteria per event
+- **Simple mode** (`--simple`, Ollama): lightweight prompt, rating + reason only, batch size 3
+- Scores 1-5 across: content suitability, location, toddler amenities, interaction, cost
+- Stores results in `event_ratings` table (user_email = `deepseek` or `ollama`)
+- Run separately from scrape pipeline via `--rate-events`
 
 ---
 
@@ -355,45 +365,38 @@ python -c "from rules import get_rule; r = get_rule('https://example.com'); prin
 
 ---
 
-## MCP Database Access
+## Database Access
 
-**IMPORTANT**: All database tables are in the `webscraper` schema, not `public`. The MCP tools automatically use the correct schema. The `public` schema has been renamed to `Jobsearch`.
+**IMPORTANT**: All tables are in the `webscraper` schema, not `public`.
 
-### Available MCP Tools
-
-- **`webscraper_db_read_query`** - Execute SELECT queries to read events data
-- **`webscraper_db_list_tables`** - Get list of all database tables
-- **`webscraper_db_describe_table`** - View schema for a specific table
-- **`webscraper_db_export_query`** - Export query results as CSV/JSON
-- **`webscraper_db_list_insights`** - List business insights
-
-### Database Tables
+### Tables
 
 | Table | Description |
 |--------|-------------|
-| `events` | Main events table (9,639+ events) |
+| `events` | All scraped events (12,000+) |
+| `events_distinct` | Deduplicated view (best row per name+start_datetime+origin) |
+| `event_ratings` | Agent ratings (user_email = `deepseek` or `ollama`) |
 | `runs` | Pipeline run tracking |
 | `status` | Run metrics and performance data |
 | `raw_summaries` | Raw scraper outputs for debugging |
 | `city_coordinates` | City lat/lng for distance calculations |
 | `city_road_distances` | Road distances between cities |
 
-### Usage Examples
+### Direct DB Access (via container)
 
-**Natural language queries:**
-- "Show me events happening this weekend"
-- "How many sport events are in the database?"
-- "List all family events in Monheim sorted by date"
-- "Export all events from this week as CSV"
-
-**SQL queries:**
-```sql
--- Events by origin
-SELECT origin, COUNT(*) FROM events WHERE created_at LIKE '2026-02-27%' GROUP BY origin;
-
--- Eventim events
-SELECT COUNT(*) FROM events WHERE origin LIKE 'eventim_%';
+```bash
+docker exec webscraper python3 -c "
+import psycopg2
+conn = psycopg2.connect(host='postgres', dbname='vmpostgres', user='webscraper', password='webscraper', port=5432)
+cur = conn.cursor()
+cur.execute('SELECT COUNT(*) FROM webscraper.events_distinct')
+print(cur.fetchone())
+"
 ```
+
+### MCP Setup
+
+No MCP configuration is currently active. See `docs/40_mcp_postgres_setup.md` for setup instructions if needed.
 
 ---
 
@@ -411,6 +414,7 @@ WebScraper/
 │   ├── __init__.py
 │   ├── scraper_agent.py   # Scraper (Agent 1)
 │   ├── analyzer_agent.py  # Analyzer (Agent 2)
+│   ├── rating_agent.py    # Rating (Agent 3) — DeepSeek + Ollama
 │   └── tools.py          # LangChain tools (search, fetch)
 │
 ├── rules/                 # URL rules and scrapers
@@ -423,18 +427,28 @@ WebScraper/
 │   │
 │   ├── aggregators/       # Aggregator scrapers
 │   │   ├── eventim/
-│   │   ├── rausgegangen/
-│   │   └── ...
+│   │   └── rausgegangen/
 │   │
-│   └── cities/           # City-specific scrapers
+│   └── cities/           # City-specific scrapers (9 cities)
 │       └── {city}/
 │           └── {subfolder}/
 │               ├── scraper.py
 │               └── regex.py
 │
+├── locations/             # Ausflüge feature (family-friendly places)
+│   ├── cli.py
+│   ├── models.py
+│   ├── storage.py
+│   └── sources/
+│
 ├── scripts/               # Database scripts
 │   ├── init_postgres.sql  # Schema + permissions setup
-│   └── migrate_sqlite_to_postgres.py  # One-time migration
+│   ├── benchmark_rating.py
+│   └── fix_city_variations.py
+│
+├── docker/                # Container setup
+│   ├── entrypoint.sh
+│   └── crontab            # Daily scrape + rating schedule
 │
 ├── logs/                  # Timestamped logs
 │   └── scrape_*.log

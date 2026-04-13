@@ -4,15 +4,17 @@ This document describes the MCP (Model Context Protocol) setup for accessing the
 
 ## Overview
 
-The project uses an MCP server to provide database access to AI coding tools (OpenCode, Claude Code). This enables data analysis and natural language queries about the events database.
+The project uses an MCP server to provide database access to AI coding tools (Claude Code, OpenCode). This enables data analysis and natural language queries about the events database.
 
-The WebScraper data lives in a `webscraper` schema inside the shared `vmpostgres` PostgreSQL database (shared with the JobSearch project).
+The WebScraper data lives in a `webscraper` schema inside the shared `vmpostgres` PostgreSQL database.
+
+**Architecture**: PostgreSQL runs in Docker on the Docker host (`192.168.178.160:5432`). The dev VM (`192.168.178.192`) can reach it directly over the local network — no SSH tunnel needed.
 
 ## Configuration
 
 ### Claude Code (.mcp.json)
 
-Location: `/home/vscode/projects/WebScraper/.mcp.json`
+Location: `/home/sebastian/projects/WebScraper/.mcp.json`
 
 ```json
 {
@@ -20,7 +22,7 @@ Location: `/home/vscode/projects/WebScraper/.mcp.json`
     "webscraper_db": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-postgres",
-               "postgresql://webscraper:webscraper@localhost:5432/vmpostgres?options=-csearch_path%3Dwebscraper"]
+               "postgresql://webscraper:webscraper@192.168.178.160:5432/vmpostgres?options=-csearch_path%3Dwebscraper"]
     }
   }
 }
@@ -28,15 +30,16 @@ Location: `/home/vscode/projects/WebScraper/.mcp.json`
 
 ### OpenCode (opencode.json)
 
-Location: `/home/vscode/projects/WebScraper/opencode.json`
+Location: `/home/sebastian/projects/WebScraper/opencode.json`
 
 ```json
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "webscraper_db": {
       "type": "local",
       "command": ["npx", "-y", "@modelcontextprotocol/server-postgres",
-                  "postgresql://webscraper:webscraper@localhost:5432/vmpostgres?options=-csearch_path%3Dwebscraper"],
+                  "postgresql://webscraper:webscraper@192.168.178.160:5432/vmpostgres?options=-csearch_path%3Dwebscraper"],
       "enabled": true
     }
   }
@@ -44,8 +47,8 @@ Location: `/home/vscode/projects/WebScraper/opencode.json`
 ```
 
 **Server**: `@modelcontextprotocol/server-postgres`
-**Connection**: PostgreSQL on `localhost:5432`, database `vmpostgres`, schema `webscraper`
-**User**: `webscraper` (full access) or `jobsearch_readonly` (read-only)
+**Connection**: PostgreSQL on `192.168.178.160:5432`, database `vmpostgres`, schema `webscraper`
+**User**: `webscraper`
 
 ## Available MCP Tools
 
@@ -68,6 +71,7 @@ Location: `/home/vscode/projects/WebScraper/opencode.json`
 | `status` | Run status with metrics (duration, event counts) |
 | `events` | Structured event data (name, description, location, date, etc.) |
 | `events_distinct` | Deduplicated events (best row per name+start_datetime+origin) |
+| `event_ratings` | Agent ratings (rating 1-5, reason, sub-criteria) |
 | `raw_summaries` | Raw text from scraper (for debugging) |
 | `locations` | Family-friendly places (Ausflüge feature) |
 
@@ -144,8 +148,8 @@ Both schemas are visible in PGWeb at `localhost:8080`.
 
 - **Shared database**: Both projects use the same PostgreSQL instance (port 5432)
 - **Schema isolation**: Each project has its own schema
-- **Read-only user**: `jobsearch_readonly` has SELECT-only access to both schemas
-- **Credentials**: Connection uses `webscraper` user with password authentication
+- **Credentials**: MCP connection uses `webscraper` user (full access to `webscraper` schema)
+- **Network**: PostgreSQL is only accessible within the local network (not exposed externally)
 
 ## Troubleshooting
 
@@ -153,24 +157,24 @@ Both schemas are visible in PGWeb at `localhost:8080`.
 
 ```bash
 # Test the MCP server manually
-npx -y @modelcontextprotocol/server-postgres "postgresql://webscraper:webscraper@localhost:5432/vmpostgres?options=-csearch_path%3Dwebscraper"
+npx -y @modelcontextprotocol/server-postgres "postgresql://webscraper:webscraper@192.168.178.160:5432/vmpostgres?options=-csearch_path%3Dwebscraper"
 ```
 
 ### Database connection failed
 
 ```bash
-# Check PostgreSQL is running
-pg_isready -h localhost -p 5432
+# Check TCP connectivity to Docker host
+nc -zv 192.168.178.160 5432
 
-# Test connection
-psql -h localhost -U jobsearch -d vmpostgres -c "SET search_path TO webscraper; SELECT COUNT(*) FROM events;"
+# Test connection (if psql available)
+psql -h 192.168.178.160 -U webscraper -d vmpostgres -c "SET search_path TO webscraper; SELECT COUNT(*) FROM events;"
 ```
 
 ### Schema not found
 
 ```bash
-# Run the init script
-psql -h localhost -U webscraper -d vmpostgres -f scripts/init_postgres.sql
+# Run the init script (connect to Docker host)
+psql -h 192.168.178.160 -U webscraper -d vmpostgres -f scripts/init_postgres.sql
 ```
 
 ## Resources

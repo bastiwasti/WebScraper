@@ -105,6 +105,8 @@ Skala:
 2 = Eher nicht für Kleinkinder
 1 = Ungeeignet (Erwachsenenveranstaltung, weit weg, teuer)
 
+WICHTIG: Prüfe start_datetime! Uhrzeit >= 18:00 = max. 2 (Kleinkinder schlafen). Veranstaltungen explizit für Kinder/Babys/Familien = 4-5.
+
 Antworte NUR mit JSON, kein Text darum: {{"event_id": <id>, "rating": <1-5>, "reason": "<1 Satz auf Deutsch>"}}
 
 Event:
@@ -118,6 +120,8 @@ Skala:
 3 = Geht so, vielleicht interessant
 2 = Eher nicht für Kleinkinder
 1 = Ungeeignet (Erwachsenenveranstaltung, weit weg, teuer)
+
+WICHTIG: Prüfe start_datetime! Uhrzeit >= 18:00 = max. 2 (Kleinkinder schlafen). Veranstaltungen explizit für Kinder/Babys/Familien = 4-5.
 
 Antworte NUR mit JSON-Array, kein Text darum: [{{"event_id": <id>, "rating": <1-5>, "reason": "<1 Satz auf Deutsch>"}}]
 
@@ -208,6 +212,7 @@ class RatingAgent:
                 model=model or LLM_MODEL,
                 base_url=OLLAMA_BASE_URL,
                 temperature=0.0,
+                format="json",
                 client_kwargs={"timeout": 600},
             )
             # gemma2 and other Ollama models don't support function calling

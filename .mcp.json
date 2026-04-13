@@ -2,7 +2,7 @@
   "mcpServers": {
     "webscraper_db": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://webscraper:webscraper@localhost:5432/vmpostgres?options=-csearch_path%3Dwebscraper"]
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://webscraper:webscraper@192.168.178.160:5432/vmpostgres?options=-csearch_path%3Dwebscraper"]
     }
   }
 }

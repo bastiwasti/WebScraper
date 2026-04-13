@@ -4,7 +4,7 @@
     "webscraper_db": {
       "type": "local",
       "command": ["npx", "-y", "@modelcontextprotocol/server-postgres",
-                  "postgresql://webscraper:webscraper@localhost:5432/vmpostgres?options=-csearch_path%3Dwebscraper"],
+                  "postgresql://webscraper:webscraper@192.168.178.160:5432/vmpostgres?options=-csearch_path%3Dwebscraper"],
       "enabled": true
     }
   }
