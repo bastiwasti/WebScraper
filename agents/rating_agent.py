@@ -212,7 +212,6 @@ class RatingAgent:
                 model=model or LLM_MODEL,
                 base_url=OLLAMA_BASE_URL,
                 temperature=0.0,
-                format="json",
                 client_kwargs={"timeout": 600},
             )
             # gemma2 and other Ollama models don't support function calling
