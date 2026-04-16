@@ -138,6 +138,7 @@ GET_UNRATED_EVENTS_SCHEMA = {
         "description": "Fetch a batch of unrated events from the database. Returns event details including id, name, description, category, location, city, and start_datetime.",
         "parameters": {
             "type": "object",
+            "title": "get_unrated_events",
             "properties": {
                 "limit": {
                     "type": "integer",
@@ -157,6 +158,7 @@ SUBMIT_RATINGS_SCHEMA = {
         "description": "Submit ratings for a batch of events. Each rating must include event_id, overall rating, 5 sub-criteria ratings, and a short reason.",
         "parameters": {
             "type": "object",
+            "title": "submit_ratings",
             "properties": {
                 "ratings": {
                     "type": "array",
@@ -206,16 +208,35 @@ class RatingAgent:
                 timeout=300,
             )
         elif LLM_PROVIDER == "ollama":
-            from config import OLLAMA_BASE_URL, LLM_MODEL
+            from config import OLLAMA_BASE_URL, LLM_MODEL, OLLAMA_CLOUD_BASE_URL, OLLAMA_CLOUD_API_KEY, OLLAMA_CLOUD_MODEL
             from langchain_ollama import ChatOllama
+
+            model_name = model or LLM_MODEL
+            base_url = OLLAMA_BASE_URL
+            api_key = None
+
+            # Check if using cloud model (models not available locally)
+            cloud_models = ["gemma4", "qwen3.5", "ministral-3", "devstral-2", "nemotron-3", "glm-5", "minimax-m2", "kimi-k2", "cogito", "gemini-3", "deepseek-v3.2"]
+            if any(cloud_model in model_name for cloud_model in cloud_models):
+                base_url = OLLAMA_CLOUD_BASE_URL
+                api_key = OLLAMA_CLOUD_API_KEY
+                if not model:
+                    model_name = OLLAMA_CLOUD_MODEL
+
+            client_kwargs = {"timeout": 600}
+            if api_key:
+                client_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+
             self.llm = ChatOllama(
-                model=model or LLM_MODEL,
-                base_url=OLLAMA_BASE_URL,
+                model=model_name,
+                base_url=base_url,
                 temperature=0.0,
-                client_kwargs={"timeout": 600},
+                client_kwargs=client_kwargs,
             )
-            # gemma2 and other Ollama models don't support function calling
-            use_tools = False
+            # Only disable tool calling for local Ollama models (not cloud models)
+            # Cloud models like gemma4:31b, qwen3.5, etc. support function calling
+            if base_url == OLLAMA_BASE_URL:  # Local Ollama
+                use_tools = False
         else:
             raise ValueError(f"LLM_PROVIDER '{LLM_PROVIDER}' not configured or missing API key.")
         self.use_tools = use_tools

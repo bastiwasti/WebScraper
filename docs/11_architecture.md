@@ -313,16 +313,32 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 
 ## Database Schema
 
-### Tables
+**Complete database documentation is available in [docs/80_database_schema.md](80_database_schema.md).**
 
-#### `runs` - Pipeline run tracking
+### Key Tables
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | SERIAL | Primary key |
-| `agent` | TEXT | Agent type (comma-separated: "scraper, analyzer") |
-| `cities` | TEXT | Cities scraped (comma-separated) |
-| `created_at` | TIMESTAMP | ISO timestamp |
+| Table | Purpose | Records |
+|-------|---------|---------|
+| `events` | Raw scraped events (with duplicates) | 108,874 |
+| `events_distinct` | Deduplicated unique events | 12,627 |
+| `event_ratings` | Agent ratings (references events_distinct.id) | 3,271 |
+| `runs` | Pipeline run tracking | 187 |
+| `status` | Run metrics and performance data | 149 |
+| `raw_summaries` | Raw scraper outputs for debugging | 19 |
+| `locations` | Family-friendly places (Ausflüge feature) | 2,021 |
+| `city_coordinates` | City lat/lng for distance calculations | 30 |
+| `city_road_distances` | Road distances between cities | 405 |
+
+### Critical Relationships
+
+1. **events → events_distinct**: Deduplication on (name, start_datetime, origin)
+2. **events_distinct → event_ratings**: Ratings reference events_distinct.id
+3. **runs → events**: Each event links to its pipeline run
+4. **event_ratings.user_email**: Identifies rater (deepseek, ollama, or user)
+
+**IMPORTANT**: `event_ratings.event_id` references `events_distinct.id`, NOT `events.id`. IDs are independent between these tables.
+
+See [docs/80_database_schema.md](80_database_schema.md) for complete schema details.
 | `raw_summary_id` | INTEGER | FK to raw_summaries (analyzer only) |
 
 #### `status` - Run status metrics
@@ -359,9 +375,25 @@ analyzer_run_id = create_run("analyzer", loc, raw_summary_id)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | SERIAL | Primary key |
-| Inherits all columns from `events` | | Best row per (name, start_datetime, origin) |
-| `rating` | INTEGER | Manual event rating |
+| `id` | SERIAL | Primary key (independent from events.id) |
+| `name` | TEXT | Event name |
+| `description` | TEXT | Event description |
+| `location` | TEXT | Event venue |
+| `start_datetime` | TIMESTAMP | Event start time |
+| `end_datetime` | TIMESTAMP | Event end time |
+| `category` | TEXT | Event category |
+| `source` | TEXT | Source website |
+| `city` | TEXT | City name |
+| `origin` | TEXT | Data origin identifier |
+| `event_url` | TEXT | URL to event detail page |
+| `detail_description` | TEXT | Enhanced description from Level 2 scraping |
+| `detail_full_description` | TEXT | Full description from Level 2 scraping |
+| `rating` | NUMERIC | Manual event rating (1-5) |
+| `first_seen_at` | TEXT | When event was first scraped |
+| `last_seen_at` | TEXT | When event was last seen |
+| `seen_count` | INTEGER | How many times this event has been scraped |
+
+**Unique Constraint**: (name, start_datetime, origin)
 
 #### `raw_summaries` - Scraper output for debugging
 
@@ -390,6 +422,11 @@ runs (1) ───────┬──▶ (N) events
 
 runs (1) ───────▶ (0..1) runs (linked_run_id)
     (analyzer)       (scraper)
+
+events (N) ───────▶ (1) events_distinct (deduplication: name+start_datetime+origin)
+
+events_distinct (1) ◀─── (N) event_ratings
+    (per event_id)      (per user_email)
 ```
 
 ---

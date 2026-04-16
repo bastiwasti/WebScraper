@@ -371,16 +371,18 @@ python -c "from rules import get_rule; r = get_rule('https://example.com'); prin
 
 ### Tables
 
-| Table | Description |
-|--------|-------------|
-| `events` | All scraped events (12,000+) |
-| `events_distinct` | Deduplicated view (best row per name+start_datetime+origin) |
-| `event_ratings` | Agent ratings (user_email = `deepseek` or `ollama`) |
-| `runs` | Pipeline run tracking |
-| `status` | Run metrics and performance data |
-| `raw_summaries` | Raw scraper outputs for debugging |
-| `city_coordinates` | City lat/lng for distance calculations |
-| `city_road_distances` | Road distances between cities |
+| Table | Description | Records |
+|--------|-------------|---------|
+| `events` | Raw scraped events (with duplicates) | 108,874 |
+| `events_distinct` | Deduplicated unique events | 12,627 |
+| `event_ratings` | Agent ratings (references events_distinct.id) | 3,271 |
+| `runs` | Pipeline run tracking | 187 |
+| `status` | Run metrics and performance data | 149 |
+| `raw_summaries` | Raw scraper outputs for debugging | 19 |
+| `city_coordinates` | City lat/lng for distance calculations | 30 |
+| `city_road_distances` | Road distances between cities | 405 |
+
+**See [docs/80_database_schema.md](docs/80_database_schema.md) for complete database documentation.**
 
 ### Direct DB Access (via container)
 
@@ -393,6 +395,8 @@ cur.execute('SELECT COUNT(*) FROM webscraper.events_distinct')
 print(cur.fetchone())
 "
 ```
+
+**IMPORTANT**: Always query `events_distinct` for rating purposes. `event_ratings.event_id` references `events_distinct.id`, NOT `events.id`.
 
 ### MCP Setup
 

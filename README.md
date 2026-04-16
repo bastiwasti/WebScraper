@@ -190,15 +190,17 @@ WebScraper/
 
 PostgreSQL (`vmpostgres` database, `webscraper` schema):
 
-| Table | Purpose |
-|-------|---------|
-| `events` | All scraped events (name, description, location, date, category) |
-| `events_distinct` | Deduplicated view (best row per name+start_datetime+origin) |
-| `event_ratings` | Agent ratings (rating 1-5, reason, sub-criteria) |
-| `runs` | Pipeline run tracking |
-| `status` | Run metrics (duration, event counts) |
-| `raw_summaries` | Raw scraper output for debugging |
-| `locations` | Family-friendly places (Ausflüge feature) |
+| Table | Purpose | Records |
+|-------|---------|---------|
+| `events` | Raw scraped events (with duplicates) | 108,874 |
+| `events_distinct` | Deduplicated unique events | 12,627 |
+| `event_ratings` | Agent ratings (references events_distinct.id) | 3,271 |
+| `runs` | Pipeline run tracking | 187 |
+| `status` | Run metrics (duration, event counts) | 149 |
+| `raw_summaries` | Raw scraper output for debugging | 19 |
+| `locations` | Family-friendly places (Ausflüge feature) | 2,021 |
+
+**See [docs/80_database_schema.md](docs/80_database_schema.md) for complete database documentation.**
 
 ---
 

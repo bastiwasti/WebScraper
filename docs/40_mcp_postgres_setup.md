@@ -63,43 +63,24 @@ Location: `/home/sebastian/projects/WebScraper/opencode.json`
 
 ## Database Schema
 
-### Tables
+### Tables Overview
 
-| Table | Purpose |
-|-------|---------|
-| `runs` | Pipeline run tracking (agent, location, timestamp) |
-| `status` | Run status with metrics (duration, event counts) |
-| `events` | Structured event data (name, description, location, date, etc.) |
-| `events_distinct` | Deduplicated events (best row per name+start_datetime+origin) |
-| `event_ratings` | Agent ratings (rating 1-5, reason, sub-criteria) |
-| `raw_summaries` | Raw text from scraper (for debugging) |
-| `locations` | Family-friendly places (Ausflüge feature) |
+| Table | Purpose | Records |
+|-------|---------|---------|
+| `events` | Raw scraped events (with duplicates) | 108,874 |
+| `events_distinct` | Deduplicated unique events | 12,627 |
+| `event_ratings` | Agent ratings (references events_distinct.id) | 3,271 |
+| `runs` | Pipeline run tracking | 187 |
+| `status` | Run status with metrics | 149 |
+| `raw_summaries` | Raw text from scraper (for debugging) | 19 |
+| `locations` | Family-friendly places (Ausflüge feature) | 2,021 |
 
-### Events Table
+**IMPORTANT**: Complete database documentation including relationships, indexes, and query patterns is available in [docs/80_database_schema.md](80_database_schema.md).
 
-Main table containing event data:
-
-- `id` - Primary key (SERIAL)
-- `run_id` - Associated pipeline run
-- `name` - Event name
-- `description` - Event description
-- `location` - Event location
-- `start_datetime` - Event start time
-- `end_datetime` - Event end time
-- `category` - Event category (family, education, sport, etc.)
-- `source` - Source website
-- `city` - City name
-- `event_url` - URL to event detail page
-- `detail_scraped` - Whether detail page was fetched (0/1)
-- `raw_data` - Raw JSON data
-- `origin` - Data origin identifier (e.g., "leverkusen_lust_auf")
-
-### Indexes
-
-- `idx_events_start_datetime` - For time-based queries
-- `idx_events_end_datetime` - For time-based queries
-- `idx_events_category` - For category filtering
-- `idx_events_run_id` - For run-based queries
+**Critical Relationship**:
+- `event_ratings.event_id` references `events_distinct.id`, NOT `events.id`
+- IDs are independent between `events` and `events_distinct`
+- Always use `events_distinct` for rating queries
 
 ## Usage Examples
 

@@ -239,10 +239,11 @@ All documentation files follow a format: `{number}_{name}.md`
 **Contents:**
 - MCP server configuration (PostgreSQL, webscraper schema)
 - Available database tools
-- Database schema reference
 - Usage examples (natural language queries, SQL queries, exports)
 - Multi-project setup (webscraper + jobsearch schemas)
 - Security and troubleshooting
+
+**Note:** Database schema details are now in [docs/80_database_schema.md](80_database_schema.md).
 
 ---
 
@@ -330,6 +331,7 @@ If you're new to the project:
 2. **docs/00_url_setup_prompt.md** — How to add new event sources (provide URL + city name)
 3. **docs/01_agent_guide.md** — How the scraper and analyzer agents work
 4. **docs/11_architecture.md** — Deep system architecture reference
+5. **docs/80_database_schema.md** — Complete database documentation
 
 Everything else is reference material — consult as needed.
 
