@@ -1304,7 +1304,6 @@ def init_events_distinct_db(conn=None) -> None:
                 event_url TEXT,
                 detail_description TEXT,
                 detail_full_description TEXT,
-                rating NUMERIC(3,1) CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
                 first_seen_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
                 seen_count INTEGER DEFAULT 1,
@@ -1335,7 +1334,6 @@ def rebuild_events_distinct(conn=None) -> int:
     Upserts all unique events (by name + start_datetime + origin).
     Picks the most informative row per group (prefers rows with
     detail_description, then latest created_at).
-    Preserves user-set ratings — only scraper-derived fields are updated.
 
     Returns number of rows in events_distinct after rebuild.
     """
@@ -1343,13 +1341,6 @@ def rebuild_events_distinct(conn=None) -> int:
     if own_conn:
         conn = get_connection()
     try:
-        # Save ratings before rebuild
-        saved_ratings = []
-        if _table_exists(conn, 'events_distinct'):
-            cur = _execute(conn,
-                "SELECT name, start_datetime, rating FROM events_distinct WHERE rating IS NOT NULL")
-            saved_ratings = cur.fetchall()
-
         init_events_distinct_db(conn)
 
         cur = _execute(conn, "SELECT COUNT(*) AS cnt FROM events_distinct")
@@ -1434,15 +1425,6 @@ def rebuild_events_distinct(conn=None) -> int:
                 ))
             WHERE city IS NULL OR city = ''
         """)
-
-        # Restore saved ratings
-        if saved_ratings:
-            for row in saved_ratings:
-                _execute(conn,
-                    "UPDATE events_distinct SET rating = %s WHERE name = %s AND start_datetime = %s",
-                    (row["rating"], row["name"], row["start_datetime"]),
-                )
-            print(f"  Restored {len(saved_ratings)} user ratings")
 
         conn.commit()
 

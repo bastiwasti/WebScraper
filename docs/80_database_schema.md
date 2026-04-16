@@ -127,7 +127,6 @@ CREATE TABLE events_distinct (
     event_url TEXT,
     detail_description TEXT,
     detail_full_description TEXT,
-    rating NUMERIC(3,1) CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     seen_count INTEGER DEFAULT 1,
@@ -137,7 +136,6 @@ CREATE TABLE events_distinct (
 
 **Key Fields**:
 - `id`: Unique identifier (independent from `events.id`)
-- `rating`: Manual rating field (1-5, NULL for unrated)
 - `first_seen_at`: When this event was first scraped
 - `last_seen_at`: When this event was last seen
 - `seen_count`: How many times this event has been scraped
@@ -148,13 +146,11 @@ CREATE TABLE events_distinct (
 - `idx_events_distinct_start`: (start_datetime)
 - `idx_events_distinct_category`: (category)
 - `idx_events_distinct_city`: (city)
-- `idx_events_distinct_rating`: (rating)
 
 **Usage**:
 - **Primary table for rating**: Ratings reference `events_distinct.id`
 - Display purposes: Shows unique events without duplicates
 - Tracking: Monitors event changes over time via `seen_count`
-- Manual rating field: Can be manually rated (separate from agent ratings)
 
 **Important**: 
 - This table has its own ID sequence (not related to `events.id`)
