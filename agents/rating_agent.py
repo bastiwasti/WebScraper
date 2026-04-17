@@ -200,8 +200,9 @@ class RatingAgent:
 
         if LLM_PROVIDER == "deepseek" and DEEPSEEK_API_KEY:
             from langchain_openai import ChatOpenAI
+            self.model_name = model or DEEPSEEK_MODEL
             self.llm = ChatOpenAI(
-                model=model or DEEPSEEK_MODEL,
+                model=self.model_name,
                 api_key=lambda: DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_BASE_URL,
                 temperature=0.0,
@@ -211,7 +212,8 @@ class RatingAgent:
             from config import OLLAMA_BASE_URL, LLM_MODEL, OLLAMA_CLOUD_BASE_URL, OLLAMA_CLOUD_API_KEY, OLLAMA_CLOUD_MODEL
             from langchain_ollama import ChatOllama
 
-            model_name = model or LLM_MODEL
+            self.model_name = model or LLM_MODEL
+            model_name = self.model_name
             base_url = OLLAMA_BASE_URL
             api_key = None
 
@@ -222,6 +224,7 @@ class RatingAgent:
                 api_key = OLLAMA_CLOUD_API_KEY
                 if not model:
                     model_name = OLLAMA_CLOUD_MODEL
+                    self.model_name = OLLAMA_CLOUD_MODEL
 
             client_kwargs = {"timeout": 600}
             if api_key:
@@ -372,7 +375,7 @@ class RatingAgent:
                 rating_interaktion=rating.get('rating_interaktion'),
                 rating_kosten=rating.get('rating_kosten'),
                 rating_reason=rating.get('reason', ''),
-                user_email='deepseek'
+                user_email=self.model_name,
             )
             if success:
                 saved += 1
@@ -468,6 +471,8 @@ class RatingAgent:
                     print(f"  Agent: {response.content[:200]}")
                 break
 
+            submitted_in_turn = any(tc["name"] == "submit_ratings" for tc in response.tool_calls)
+
             for tool_call in response.tool_calls:
                 result = self._execute_tool_call(tool_call)
                 messages.append(ToolMessage(
@@ -482,8 +487,11 @@ class RatingAgent:
             if self._no_more_events:
                 break
 
-            # Keep conversation manageable — trim old tool results if > 20 messages
-            if len(messages) > 20:
+            # Reset after each submit to prevent cross-batch context contamination
+            # (model would otherwise reference earlier events by number: "Siehe Event 56")
+            if submitted_in_turn:
+                messages = [messages[0], messages[1]]
+            elif len(messages) > 20:
                 messages = [messages[0], messages[1]] + messages[-16:]
 
         # Update status if run_id is provided
@@ -568,7 +576,7 @@ class RatingAgent:
                     rating_interaktion=rating.get('rating_interaktion'),
                     rating_kosten=rating.get('rating_kosten'),
                     rating_reason=rating.get('reason', ''),
-                    user_email='deepseek'
+                    user_email=self.model_name,
                 )
 
             if verbose:
