@@ -233,6 +233,7 @@ def main() -> None:
             print(f"Total unrated events: {total_unrated}")
         print()
 
+        import sys
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -240,6 +241,7 @@ def main() -> None:
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TextColumn("[cyan]{task.completed}/{task.total} events"),
             TimeElapsedColumn(),
+            disable=not sys.stdout.isatty(),
         ) as progress:
 
             task = progress.add_task("Rating events...", total=total_to_rate)
