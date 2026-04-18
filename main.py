@@ -223,6 +223,7 @@ def main() -> None:
             today_only=args.today_only,
             tomorrow_only=args.tomorrow_only,
             weekends_filter=args.weekends,
+            user_email=rater.model_name,
         )
 
         if args.max_events:

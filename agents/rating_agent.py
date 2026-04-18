@@ -338,6 +338,7 @@ class RatingAgent:
             today_only=self._filters.get("today_only", False),
             tomorrow_only=self._filters.get("tomorrow_only", False),
             weekends_filter=self._filters.get("weekends_filter"),
+            user_email=self.model_name,
         )
 
         if not events:
@@ -545,6 +546,7 @@ class RatingAgent:
                 today_only=filters.get("today_only", False),
                 tomorrow_only=filters.get("tomorrow_only", False),
                 weekends_filter=filters.get("weekends_filter"),
+                user_email=self.model_name,
             )
 
             if not events:
@@ -757,6 +759,7 @@ class RatingAgent:
                 today_only=filters.get("today_only", False),
                 tomorrow_only=filters.get("tomorrow_only", False),
                 weekends_filter=filters.get("weekends_filter"),
+                user_email=self.model_name,
             )
 
             if not events:
