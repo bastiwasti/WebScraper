@@ -3,102 +3,78 @@ name: Graphify
 on:
   push:
     branches: [master, main]
-    paths-ignore:
-      - "graphify-out/**"
-      - "docs/**"
-      - "*.md"
+    paths:
+      - 'src/**'
+      - 'app/**'
+      - 'package.json'
+      - '.graphifyignore'
+  workflow_dispatch:
 
 jobs:
-  graph:
+  update-graph:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-
-      - name: Install graphify
-        run: pip install graphifyy
-
-      - name: Build graph (AST only, no API cost)
+          python-version: '3.13'
+      - run: pip install graphifyy
+      - name: Build knowledge graph
         run: |
-          python -c "
-          from pathlib import Path
-          import json, subprocess
-
+          mkdir -p graphify-out
+          python3 -c "
+          import json
           from graphify.detect import detect
           from graphify.extract import collect_files, extract
           from graphify.build import build_from_json
           from graphify.cluster import cluster, score_all
-          from graphify.analyze import god_nodes, surprising_connections
+          from graphify.analyze import god_nodes, surprising_connections, suggest_questions
           from graphify.report import generate
           from graphify.export import to_json, to_html
+          from pathlib import Path
 
-          root = Path('.')
-          detection = detect(root)
+          det = detect(Path('.'))
+          code_files = []
+          for f in det['files']['code']:
+              p = Path(f)
+              code_files.extend(collect_files(p) if p.is_dir() else [p])
 
-          files = collect_files(root)
-          ast_data = extract(files)
+          if not code_files:
+              print('No code files found')
+              raise SystemExit(0)
 
-          graph = build_from_json(ast_data)
-          communities = cluster(graph)
-          scores = score_all(graph, communities)
+          extraction = extract(code_files)
+          G = build_from_json(extraction)
+          communities = cluster(G)
+          cohesion = score_all(G, communities)
+          gods = god_nodes(G)
+          surprises = surprising_connections(G, communities)
+          labels = {cid: 'Community ' + str(cid) for cid in communities}
+          questions = suggest_questions(G, communities, labels)
 
-          gods = god_nodes(graph)
-          surprises = surprising_connections(graph, communities)
+          detection = {'total_files': det['total_files'], 'total_words': det['total_words'],
+                       'needs_graph': False, 'warning': None,
+                       'files': {'code': [], 'document': [], 'paper': []}}
+          tokens = {'input': 0, 'output': 0}
 
-          commit = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], text=True).strip()
-          token_cost = {'input': 0, 'output': 0, 'total': 0, 'cost_usd': 0.0}
-
-          labels = {}
-          for cid, nodes in communities.items():
-              ns = ' '.join(nodes).lower()
-              if 'location' in ns:
-                  labels[cid] = 'Location Module'
-              elif 'rating' in ns:
-                  labels[cid] = 'Event Rating'
-              elif 'analyzer' in ns:
-                  labels[cid] = 'Event Analysis'
-              elif 'scraper_agent' in ns:
-                  labels[cid] = 'Scraper Agent'
-              elif any(c in ns for c in ['leverkusen', 'monheim', 'langenfeld', 'duesseldorf', 'burscheid', 'dormagen', 'hitdorf', 'hilden', 'leichlingen']):
-                  for city in ['leverkusen', 'monheim', 'langenfeld', 'duesseldorf', 'burscheid', 'dormagen', 'hitdorf', 'hilden', 'leichlingen']:
-                      if city in ns:
-                          labels[cid] = f'{city.title()} City Scraper'
-                          break
-              elif 'rausgegangen' in ns:
-                  labels[cid] = 'Rausgegangen Aggregator'
-              elif 'eventim' in ns:
-                  labels[cid] = 'Eventim Aggregator'
-              elif 'rules' in ns:
-                  labels[cid] = 'Rules Framework'
-              elif 'pipeline' in ns or 'main' in ns:
-                  labels[cid] = 'Pipeline Orchestration'
-              elif 'storage' in ns:
-                  labels[cid] = 'Storage Layer'
-              elif 'config' in ns:
-                  labels[cid] = 'Configuration'
-              elif 'test' in ns:
-                  labels[cid] = 'Test Suite'
-              else:
-                  labels[cid] = f'Community {cid}'
-
-          Path('graphify-out').mkdir(exist_ok=True)
-
-          report = generate(graph, communities, scores, labels, gods, surprises, detection, token_cost, 'WebScraper', built_at_commit=commit)
+          report = generate(G, communities, cohesion, labels, gods, surprises,
+                          detection, tokens, '.', suggested_questions=questions)
           Path('graphify-out/GRAPH_REPORT.md').write_text(report)
+          to_json(G, communities, 'graphify-out/graph.json')
+          to_html(G, communities, 'graphify-out/graph.html')
 
-          to_json(graph, communities, 'graphify-out/graph.json', force=True, built_at_commit=commit)
-          to_html(graph, communities, 'graphify-out/graph.html', community_labels=labels)
-
-          print(f'Nodes: {graph.number_of_nodes()}, Edges: {graph.number_of_edges()}, Communities: {len(communities)}')
+          print(f'Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities')
           "
-
-      - name: Commit graph outputs
+      - name: Commit updated graph
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add graphify-out/
-          git diff --cached --quiet || git commit -m "chore: update graphify knowledge graph [skip ci]"
-          git push
+          git add graphify-out/GRAPH_REPORT.md graphify-out/graph.json graphify-out/graph.html
+          if git diff --cached --quiet; then
+            echo "No changes to graph"
+          else
+            git commit -m "chore: update graphify knowledge graph"
+            git push
+          fi
