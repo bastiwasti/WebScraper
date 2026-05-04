@@ -49,3 +49,7 @@ data/
 *.log
 logs/
 tmp/
+
+# Graphify
+graphify-out/manifest.json
+graphify-out/cost.json
