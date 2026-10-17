@@ -1,21 +1,26 @@
 """Scraper for Leverkusen Lust-Auf website.
 
-Uses REST API to fetch all events with 30-day date filtering.
+The REST calendar API (wp-json/tribe/events) was removed by the site (404).
+Falls back to server-rendered "eventhub" cards on /veranstaltungen/ with
+WordPress pagination (/page/N/). Page 1 shows ~Oct 17-21, page 2 ~Oct 21-25
+(verified distinct), so pagination is required for the 14+-day window.
 """
 
 import requests
-import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from rules.base import BaseScraper, Event
-from rules import utils
+from rules.cities.leverkusen.lust_auf.regex import LustAufRegex
+
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+WINDOW_DAYS = 30
 
 
 class LustAufScraper(BaseScraper):
     """Scraper for Leverkusen Lust-Auf website.
-    
-    Uses REST API to fetch all events with 30-day date filtering.
-    Total: 588 events across 12 pages (50 events per page).
+
+    Fetches paginated list pages and parses eventhub cards, then enriches
+    events from detail pages (Level 2).
     """
 
     @classmethod
@@ -24,179 +29,86 @@ class LustAufScraper(BaseScraper):
         return "lust-auf-leverkusen.de" in url
 
     def fetch(self) -> str:
-        """Fetch content from Lust-Auf URL.
-        
-        Uses standard requests for static content.
-        """
+        """Fetch list page content (fallback path)."""
         return self._fetch_with_requests()
 
     def _fetch_with_requests(self) -> str:
-        """Fetch using requests."""
-        import requests as req
-        resp = req.get(
+        resp = requests.get(
             self.url,
             timeout=30,
-            headers={"User-Agent": "WeeklyMail/1.0"}
+            headers={"User-Agent": USER_AGENT},
         )
         resp.raise_for_status()
         return resp.text
 
     def fetch_raw_html(self) -> str:
-        """Fetch raw HTML content from URL.
-        
-        Returns full HTML for BeautifulSoup parsing.
-        """
+        """Fetch raw HTML content from URL."""
         return self._fetch_with_requests()
 
-    def fetch_events_from_api(self, max_pages: int = 12) -> list:
-        """Fetch all events via REST API with pagination.
-        
+    def _list_page_url(self, page: int) -> str:
+        if page <= 1:
+            return "https://lust-auf-leverkusen.de/veranstaltungen/"
+        return f"https://lust-auf-leverkusen.de/veranstaltungen/page/{page}/"
+
+    def fetch_events_from_api(self, max_pages: int = 10) -> list:
+        """Fetch all events via paginated eventhub list pages.
+
+        Pagination verified: page 2 content differs from page 1
+        (AGENTS.md pattern 5 check: page 1 != page 2).
+
         Args:
-            max_pages: Maximum number of pages to fetch (default: 12).
-        
+            max_pages: Maximum number of pages to fetch.
+
         Returns:
-            List of event dictionaries from API.
+            List of Event objects (Level 2 enriched).
         """
-        base_url = "https://lust-auf-leverkusen.de/wp-json/tribe/events/v1/events"
-        all_events = []
-        last_page = 0
-        
-        # Calculate date range (last 30 days)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=30)
-        start_date_str = start_date.strftime("%Y-%m-%d")
-        end_date_str = end_date.strftime("%Y-%m-%d")
-        
-        print(f"[LustAuf] Fetching events from {start_date_str} to {end_date_str}")
-        
+        base = LustAufRegex(self.url)
+        cutoff = datetime.now() + timedelta(days=WINDOW_DAYS)
+
+        all_events: list[Event] = []
+        seen_urls: set[str] = set()
+        pages_fetched = 0
+
         for page in range(1, max_pages + 1):
-            last_page = page
-            params = {
-                'page': page,
-                'per_page': 50,
-                'start_date': start_date_str,
-                'end_date': end_date_str,
-            }
-            
-            print(f"[LustAuf] Fetching page {page}/{max_pages}...")
-            
+            url = self._list_page_url(page)
+            print(f"[LustAuf] Fetching list page {page}: {url}")
+
             try:
-                resp = requests.get(
-                    base_url,
-                    params=params,
-                    timeout=30,
-                    headers={"User-Agent": "WeeklyMail/1.0"}
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                
-                events = data.get('events', [])
-                all_events.extend(events)
-                print(f"[LustAuf] Page {page}: {len(events)} events")
-            
+                raw_html = base.fetch_page(url)
             except Exception as e:
                 print(f"[LustAuf] Failed to fetch page {page}: {e}")
-                continue
-         
-        pages_fetched = last_page if last_page > 0 else 0
-        print(f"[LustAuf] Fetched {len(all_events)} total events from {pages_fetched} pages")
-        
-        # Convert API response dictionaries to Event objects
-        event_objects = []
-        for api_event in all_events:
-            event = self._convert_api_to_event(api_event)
-            if event:
-                event_objects.append(event)
-        
-        print(f"[LustAuf] Converted {len(event_objects)} events to Event objects")
-        return event_objects
-    
-    def _convert_api_to_event(self, api_event: dict) -> Event | None:
-        """Convert API response dictionary to Event object.
-        
-        Args:
-            api_event: Dictionary from REST API response
-        
-        Returns:
-            Event object or None if conversion fails
-        """
-        try:
-            title = api_event.get('title', '').strip()
-            description_html = api_event.get('description', '')
-            
-            # Strip HTML from description for cleaner text
-            from bs4 import BeautifulSoup
-            description = BeautifulSoup(description_html, 'html.parser').get_text(strip=True)
-            
-            # Get date and time
-            start_date_str = api_event.get('start_date', '')
-            end_date_str = api_event.get('end_date', '')
-            
-            # Parse date string (format: "2026-01-16 16:00:00")
-            date_only = ""
-            time_only = ""
-            end_time_only = ""
-            
-            if start_date_str:
-                try:
-                    dt = datetime.strptime(start_date_str, "%Y-%m-%d %H:%M:%S")
-                    date_only = dt.strftime("%Y-%m-%d")
-                    time_only = dt.strftime("%H:%M")
-                except ValueError:
-                    pass
-            
-            if end_date_str:
-                try:
-                    dt = datetime.strptime(end_date_str, "%Y-%m-%d %H:%M:%S")
-                    end_time_only = dt.strftime("%H:%M")
-                except ValueError:
-                    pass
-            
-            # Get venue/location
-            venue = api_event.get('venue', {})
-            location = ""
-            
-            if venue:
-                # Try venue name first
-                venue_name = venue.get('venue', '').strip()
-                if venue_name:
-                    location = venue_name
+                break
+
+            cards = base.parse_cards(raw_html)
+            print(f"[LustAuf] Page {page}: {len(cards)} cards")
+
+            new_cards = [c for c in cards if c["event_url"] not in seen_urls]
+            if not new_cards:
+                print(f"[LustAuf] Page {page} has no new events - stopping")
+                break
+
+            page_beyond_cutoff = False
+            for card in new_cards:
+                seen_urls.add(card["event_url"])
+                event = base.build_event_from_card(card)
+                if event:
+                    all_events.append(event)
                 else:
-                    # Fall back to address
-                    address = venue.get('address', '').strip()
-                    if address:
-                        location = address
-            
-            # Source URL
-            source_url = api_event.get('url', '')
-            
-            # Extract and normalize city from venue
-            city = utils.normalize_city(
-                raw_city=venue.get('city', '') if venue else '',
-                default_city='Leverkusen'
-            )
-            
-            # Build Event object
-            event = Event(
-                name=title,
-                description=description,
-                location=location,
-                date=date_only,
-                time=time_only,
-                source=source_url,
-                end_time=end_time_only,
-                category="other",
-                city=city,
-                event_url=source_url,
-                raw_data=api_event,
-                origin=self.get_origin(),
-            )
-            
-            return event
-            
-        except Exception as e:
-            print(f"[LustAuf] Failed to convert event to Event object: {e}")
-            return None
+                    try:
+                        dt = datetime.fromisoformat(card["datetime_iso"])
+                        if dt.date() > cutoff.date():
+                            page_beyond_cutoff = True
+                    except ValueError:
+                        pass
+
+            pages_fetched = page
+
+            if page_beyond_cutoff:
+                print(f"[LustAuf] Page {page} reaches beyond the {WINDOW_DAYS}-day window - stopping")
+                break
+
+        print(f"[LustAuf] Fetched {len(all_events)} events from {pages_fetched} pages")
+        return base.fetch_level2_data(all_events)
 
     @property
     def needs_browser(self) -> bool:

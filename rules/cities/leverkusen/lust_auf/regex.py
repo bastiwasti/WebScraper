@@ -1,29 +1,32 @@
-"""JSON parser for Leverkusen Lust-Auf website.
+"""HTML parser for Leverkusen Lust-Auf website.
 
-Extracts ALL events from REST API with 30-day date filtering.
-Includes Level 2 detail page fetching for comprehensive event data.
+The site no longer exposes the calendar REST API (wp-json/tribe/events 404s).
+It renders "eventhub" cards server-side on /veranstaltungen/ with WordPress
+pagination (/veranstaltungen/page/2/ — page 2 verified different from page 1).
 
-Total: 588 events across 12 pages (50 events per page).
+This parser extracts events from the eventhub card markup (Level 1) and
+enriches them from detail pages (Level 2): full description, end time,
+categories and price.
 """
 
 import re
-import json
 import requests
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List
 from bs4 import BeautifulSoup
 from rules.base import BaseRule, Event
 from rules import categories
 
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+WINDOW_DAYS = 30
+
 
 class LustAufRegex(BaseRule):
-    """JSON parser for Leverkusen Lust-Auf events.
-    
-    Extracts events from REST API:
-    - Endpoint: https://lust-auf-leverkusen.de/wp-json/tribe/events/v1/events
-    - Total: 588 events across 12 pages
-    - 30-day date window from current date
-    - Level 2 detail pages for each event
+    """Eventhub-card parser for Lust-Auf Leverkusen.
+
+    Level 1: server-rendered cards on /veranstaltungen/ (with /page/N/ pagination)
+    Level 2: detail pages /veranstaltung/<slug>/ with description, end time,
+             categories, price and organizer.
     """
 
     @classmethod
@@ -31,227 +34,184 @@ class LustAufRegex(BaseRule):
         """Handle Lust-Auf pages."""
         return "lust-auf-leverkusen.de" in url
 
-    def get_regex_patterns(self) -> List:
-        """Return empty list - JSON parsing is used instead."""
-        return []
-
     def __init__(self, url: str):
         super().__init__(url)
         self.today = datetime.now()
-        self.date_cutoff = self.today + timedelta(days=30)
-    
-    def parse_with_regex(self, raw_content: str) -> List[Event]:
-        """Parse JSON content from REST API.
-        
-        Args:
-            raw_content: JSON string from API response.
-        
-        Returns:
-            List of Event objects.
-        """
-        try:
-            data = json.loads(raw_content)
-            events = data.get('events', [])
-            print(f"[LustAuf] JSON parsing {len(events)} events")
-            
-            result = []
-            
-            for event_data in events:
-                try:
-                    # Extract fields
-                    title = event_data.get('title', '')
-                    description = event_data.get('description', '')
-                    excerpt = event_data.get('excerpt', '')
-                    
-                    # Combine description
-                    full_description = f"{excerpt}\n\n{description}" if excerpt else description
-                    
-                    # Parse dates
-                    start_date_str = event_data.get('start_date', '')
-                    end_date_str = event_data.get('end_date', '')
-                    
-                    # Parse start date to DD.MM.YYYY
-                    date_str = self._parse_date_from_iso(start_date_str)
-                    
-                    # Parse time from start_date
-                    time_str = self._parse_time_from_iso(start_date_str)
-                    
-                    # Extract venue/location
-                    venue = event_data.get('venue', {})
-                    location = venue.get('venue', '') if venue else venue.get('address', '')
-                    
-                    # Extract categories
-                    categories_list = event_data.get('categories', [])
-                    category_raw = ', '.join([cat.get('name', '') for cat in categories_list[:3]])
-                    category = categories.infer_category(category_raw, title)
-                    category = categories.normalize_category(category)
-                    
-                    # Extract URL
-                    event_url = event_data.get('url', '')
-                    
-                    # Check if within 30 days
-                    if not self._is_within_30_days(start_date_str):
-                        continue
-                    
-                    result.append(Event(
-                        name=title,
-                        description=full_description,
-                        location=location,
-                        date=date_str,
-                        time=time_str,
-                        source=self.url,
-                        category=category,
-                        event_url=event_url,
-                    ))
-                
-                except Exception as e:
-                    print(f"[LustAuf] Failed to parse event: {e}")
-                    continue
-            
-            print(f"[LustAuf] JSON parsing returned {len(result)} events (within 30 days)")
-            return result
-        
-        except json.JSONDecodeError as e:
-            print(f"[LustAuf] Failed to parse JSON: {e}")
-            # Fallback: try to parse as HTML
-            return self._parse_html_fallback(raw_content)
-    
-    def _parse_date_from_iso(self, iso_date: str) -> str:
-        """Parse ISO datetime to DD.MM.YYYY."""
-        if not iso_date:
-            return ""
-        
-        try:
-            # Try parsing with timezone info
-            if 'T' in iso_date:
-                iso_date = iso_date.split('T')[0]
-            
-            dt = datetime.fromisoformat(iso_date)
-            return dt.strftime("%d.%m.%Y")
-        
-        except Exception as e:
-            print(f"[LustAuf] Failed to parse date {iso_date}: {e}")
-            return ""
-    
-    def _parse_time_from_iso(self, iso_date: str) -> str:
-        """Parse ISO datetime to HH:MM format."""
-        if not iso_date:
-            return ""
-        
-        try:
-            if 'T' in iso_date:
-                iso_date = iso_date.split('T')[0]
-            
-            dt = datetime.fromisoformat(iso_date)
-            return dt.strftime("%H:%M")
-        
-        except Exception as e:
-            print(f"[LustAuf] Failed to parse time {iso_date}: {e}")
-            return ""
-    
-    def _is_within_30_days(self, iso_date_str: str) -> bool:
-        """Check if event date is within 30 days from today."""
-        if not iso_date_str:
-            return False
-        
-        try:
-            if 'T' in iso_date_str:
-                iso_date = iso_date_str.split('T')[0]
-            
-            dt = datetime.fromisoformat(iso_date)
-            days_diff = (dt.date() - self.today.date()).days
-            
-            return 0 <= days_diff <= 30
-        
-        except Exception as e:
-            print(f"[LustAuf] Failed to check date {iso_date_str}: {e}")
-            return True
-    
-    def _parse_html_fallback(self, html_content: str) -> List[Event]:
-        """Fallback HTML parser (not used with API)."""
-        print("[LustAuf] HTML fallback parser - returning empty list")
+        self.cutoff = self.today + timedelta(days=WINDOW_DAYS)
+
+    def get_regex_patterns(self) -> List:
+        """Empty - eventhub parsing uses BeautifulSoup instead."""
         return []
-    
-    def get_event_urls_from_html(self, raw_html: str) -> dict[str, str]:
-        """Extract event detail URLs from HTML (not used with API)."""
-        return {}
-    
-    def parse_detail_page(self, detail_html: str) -> dict | None:
-        """Parse event detail page for Level 2 data.
-        
-        Extracts full description from detail page HTML.
+
+    @staticmethod
+    def fetch_page(url: str, timeout: int = 25) -> str:
+        resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
+        resp.raise_for_status()
+        return resp.text
+
+    @staticmethod
+    def parse_cards(raw_html: str) -> list[dict]:
+        """Extract event data from eventhub cards.
+
+        Returns list of dicts with keys: name, event_url, datetime_iso, venue.
         """
-        soup = BeautifulSoup(detail_html, 'html.parser')
-        detail_data = {}
-        
-        # Extract full description
-        desc_elem = soup.select_one('.tribe-events-single .tribe-events-single-event-description')
-        if desc_elem:
-            paragraphs = desc_elem.select('p')
-            descriptions = []
-            for p in paragraphs:
-                text = p.get_text(strip=True)
-                if text and len(text) > 50:
-                    descriptions.append(text)
-            
-            if descriptions:
-                detail_data['detail_description'] = '\n\n'.join(descriptions[:3])
-        
-        # Extract additional info
-        if desc_elem:
-            all_text = desc_elem.get_text(strip=True)
-            if 'Adresse' in all_text:
-                detail_data['detail_location'] = all_text
-            elif 'Einlass' in all_text:
-                # Parse admission time
-                import re
-                time_match = re.search(r'(\d{1,2}:\d{2})', all_text)
-                if time_match:
-                    detail_data['detail_time'] = f"{time_match.group(1)}:{time_match.group(2)}"
-        
-        return detail_data if detail_data else None
-    
+        soup = BeautifulSoup(raw_html, "html.parser")
+        cards = soup.select("article.eventhub-card")
+        result = []
+        for card in cards:
+            try:
+                title_link = card.select_one(".eventhub-event-card__title a[href]")
+                if not title_link:
+                    continue
+                name = title_link.get_text(strip=True)
+                href = title_link.get("href", "").strip()
+                if not name or not href:
+                    continue
+
+                time_elem = card.select_one("time[datetime]")
+                dt_iso = time_elem.get("datetime", "").strip() if time_elem else ""
+
+                venue_elem = card.select_one(".eventhub-event-card__venue-name")
+                venue = venue_elem.get_text(strip=True) if venue_elem else ""
+
+                if card.has_attr("aria-label"):
+                    aria = card["aria-label"]
+                    if aria.startswith("Event:") and not name:
+                        name = aria[len("Event:"):].strip()
+
+                result.append({
+                    "name": name,
+                    "event_url": href,
+                    "datetime_iso": dt_iso,
+                    "venue": venue,
+                })
+            except Exception as e:
+                print(f"[LustAuf] Card parse failed: {e}")
+                continue
+        return result
+
+    @staticmethod
+    def parse_detail_page(detail_html: str) -> dict | None:
+        """Parse event detail page (Level 2).
+
+        Returns dict with detail_full_description, detail_end_time,
+        detail_price, detail_categories or None.
+        """
+        soup = BeautifulSoup(detail_html, "html.parser")
+        content = soup.select_one(".eventhub-hero-editorial__content")
+        if not content:
+            return None
+
+        detail = {}
+
+        paragraphs = [p.get_text(strip=True) for p in content.find_all("p")]
+        descriptions = [p for p in paragraphs if len(p) > 50]
+        if descriptions:
+            detail["detail_full_description"] = "\n\n".join(descriptions[:4])
+        elif content.get_text(strip=True):
+            detail["detail_full_description"] = content.get_text(strip=True)[:2000]
+
+        rows = content.select(".eventhub-hero-editorial__event-teaser, dl, table")
+        details_text = " | ".join(r.get_text(" ", strip=True) for r in rows)
+
+        raw = BeautifulSoup(re.sub(r"<[^>]*>", "|", details_text), "html.parser").get_text("|", strip=True)
+        compressed = re.sub(r"\|+", "|", raw)
+
+        time_row = re.search(r"Zeit:?\s*\|?\s*(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})", compressed)
+        if time_row:
+            detail["detail_time"] = time_row.group(1)
+            detail["detail_end_time"] = time_row.group(2)
+
+        price_row = re.search(r"Preis:?\s*\|?\s*([^|\n]{1,60})", compressed)
+        if price_row:
+            detail["detail_price"] = price_row.group(1).strip()
+
+        cat_row = re.search(r"Kategorien:?\s*\|?\s*([^|\n]{1,80})", compressed)
+        if cat_row:
+            detail["detail_categories"] = cat_row.group(1).strip()
+
+        return detail if detail else None
+
+    def build_event_from_card(self, card: dict) -> Event | None:
+        dt_iso = card.get("datetime_iso", "")
+        if not dt_iso:
+            return None
+        try:
+            dt = datetime.fromisoformat(dt_iso)
+        except ValueError:
+            return None
+
+        date_str = dt.strftime("%d.%m.%Y")
+        time_str = dt.strftime("%H:%M")
+        if not (self.today.date() <= dt.date() <= self.cutoff.date()):
+            return None
+
+        return Event(
+            name=card["name"],
+            description="",
+            location=card.get("venue", ""),
+            date=date_str,
+            time=time_str,
+            source=self.url,
+            category="other",
+            city="Leverkusen",
+            event_url=card["event_url"],
+            origin=self.get_origin(),
+        )
+
+    def parse_with_regex(self, raw_content: str) -> List[Event]:
+        """Parse list page HTML into events (single page scheduling fallback)."""
+        cards = self.parse_cards(raw_content)
+        print(f"[LustAuf] Found {len(cards)} cards on page")
+        events = []
+        for card in cards:
+            event = self.build_event_from_card(card)
+            if event:
+                events.append(event)
+        print(f"[LustAuf] {len(events)} events within {WINDOW_DAYS}-day window")
+        return events
+
     def fetch_level2_data(self, events: List[Event], raw_html: str | None = None) -> List[Event]:
-        """Fetch Level 2 detail data for events.
-        
-        For each event, fetch detail page and extract full description.
-        """
+        """Fetch detail pages: description, end time, categories, price."""
         if not events:
             return events
-        
+
         print(f"[LustAuf Level 2] Fetching detail pages for {len(events)} events...")
-        
+
         for event in events:
             if not event.event_url:
                 continue
-            
+
             try:
                 print(f"  Fetching: {event.name[:50]}")
-                
-                resp = requests.get(
-                    event.event_url,
-                    timeout=15,
-                    headers={"User-Agent": "WeeklyMail/1.0"}
-                )
-                resp.raise_for_status()
-                
-                detail_html = resp.text
-                
-                # Parse detail page
+                detail_html = self.fetch_page(event.event_url, timeout=15)
                 detail_data = self.parse_detail_page(detail_html)
-                
+
                 if detail_data:
-                    # Update event with detail data
                     event.raw_data = detail_data
+
+                    full_desc = detail_data.get("detail_full_description", "")
+                    if full_desc and not event.description:
+                        event.description = full_desc
+
+                    end_time = detail_data.get("detail_end_time", "")
+                    if end_time:
+                        event.end_time = end_time
+
+                    cat_raw = detail_data.get("detail_categories", "")
+                    if cat_raw:
+                        event.category = categories.normalize_category(
+                            categories.infer_category(cat_raw, event.name)
+                        )
+
                     event.source = event.event_url
                     print(f"  ✓ Fetched details for: {event.name[:50]}")
                 else:
                     print(f"  ✗ Failed to parse details for: {event.name[:50]}")
-            
+
             except Exception as e:
                 print(f"  ✗ Failed to fetch detail page {event.event_url}: {e}")
                 continue
-        
+
         print(f"[LustAuf Level 2] Completed: {sum(1 for e in events if e.raw_data)}/{len(events)} events with detail data")
-        
         return events
