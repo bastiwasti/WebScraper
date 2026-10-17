@@ -6,6 +6,9 @@ SHELL=/bin/bash
 # Wöchentlich Sonntag 4:00 Uhr: nächste 30 Tage raten (zukünftige Events)
 0 4 * * 0 . /app/.cron_env && cd /app && python main.py --rate-events --model gemma4:31b --batch-size 25 --days 30 --no-tools >> /app/logs/weekly_rate_$(date +\%Y\%m\%d).log 2>&1
 
+# Täglich 0:30 Uhr: Pipeline-Gesundheitscheck (alertet via ALERT_WEBHOOK_URL, Standalone ausführbar)
+30 0 * * * . /app/.cron_env && cd /app && python scripts/check_pipeline_health.py >> /app/logs/health_$(date +\%Y\%m\%d).log 2>&1
+
 # Log-Rotation: Logs älter als 30 Tage löschen, Sonntag 5:00 Uhr
 0 5 * * 0 find /app/logs/ -name '*.log' -mtime +30 -delete
 

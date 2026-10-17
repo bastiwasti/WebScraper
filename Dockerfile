@@ -28,4 +28,7 @@ RUN chmod 0644 /etc/cron.d/webscraper && crontab /etc/cron.d/webscraper
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Governance-Integrationsendpunkte (intern, polled via Container-Netz)
+EXPOSE 3002
+
 ENTRYPOINT ["/entrypoint.sh"]

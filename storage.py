@@ -569,7 +569,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                 break
 
         if time_match:
-            hour = int(time_match.group(1))
+            hour = int(time_match.group(1)) % 24
             minute = int(time_match.group(2))
         else:
             city_url = f" [City: {city}]" if city else ""
@@ -900,7 +900,7 @@ def _parse_datetime(date_str: str, time_str: str, end_time_str: str | None = Non
                 break
 
         if end_time_match:
-            end_hour = int(end_time_match.group(1))
+            end_hour = int(end_time_match.group(1)) % 24
             end_minute = int(end_time_match.group(2))
             end_datetime = parsed_date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
             return start_datetime, end_datetime
