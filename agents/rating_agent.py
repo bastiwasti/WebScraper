@@ -7,6 +7,7 @@ Supports two modes:
 
 import json
 import re
+import time
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -515,6 +516,16 @@ class RatingAgent:
 
     # --- Legacy mode (prompt-in, JSON-out) ---
 
+    @staticmethod
+    def _is_auth_error(error: Exception) -> bool:
+        err_str = str(error).lower()
+        return "401" in err_str or "unauthorized" in err_str or "forbidden" in err_str or "403" in err_str
+
+    @staticmethod
+    def _is_rate_limit_error(error: Exception) -> bool:
+        err_str = str(error).lower()
+        return "429" in err_str or "rate limit" in err_str or "too many" in err_str or "concurrent" in err_str
+
     def _run_legacy(
         self,
         filters: dict | None = None,
@@ -529,18 +540,21 @@ class RatingAgent:
         filters = filters or {}
         total_rated = 0
         failed_events = []
-        offset = 0
+        seen_ids: set[int] = set()
+        consecutive_failures = 0
+        current_batch_size = batch_size
         self._total_input_tokens = 0
         self._total_output_tokens = 0
+        MAX_CONSECUTIVE_FAILURES = 5
 
         while True:
             if max_events and total_rated >= max_events:
                 break
 
-            limit = min(batch_size, max_events - total_rated) if max_events else batch_size
+            limit = min(current_batch_size, max_events - total_rated) if max_events else current_batch_size
             events = get_unrated_events(
                 limit=limit,
-                offset=offset,
+                offset=0,
                 date_filter=filters.get("date_filter"),
                 days_filter=filters.get("days_filter"),
                 today_only=filters.get("today_only", False),
@@ -552,21 +566,39 @@ class RatingAgent:
             if not events:
                 break
 
+            new_events = [e for e in events if e['id'] not in seen_ids]
+            if not new_events:
+                break
+
             if verbose:
-                print(f"\n--- Batch {len(events)} events ---")
-                for event in events:
+                print(f"\n--- Batch {len(new_events)} events ---")
+                for event in new_events:
                     print(f"  ID {event['id']}: {event['name'][:50]}")
 
-            ratings = self.rate_events_batch(events)
+            ratings, auth_error = self.rate_events_batch_with_errors(new_events)
+
+            if auth_error:
+                print(f"  ✖ Authentication error - aborting. Check API key.")
+                break
 
             if not ratings:
-                print(f"  ⚠ Failed to rate batch, skipping {len(events)} events")
-                failed_events.extend([e['id'] for e in events])
-                total_rated += len(events)
-                offset += len(events)
-                if progress_callback:
-                    progress_callback(total_rated)
+                consecutive_failures += 1
+                print(f"  ⚠ Failed to rate batch ({consecutive_failures}/{MAX_CONSECUTIVE_FAILURES} consecutive failures)")
+                failed_events.extend([e['id'] for e in new_events])
+                for e in new_events:
+                    seen_ids.add(e['id'])
+
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(f"  ✖ Too many consecutive failures - stopping.")
+                    break
+
+                if current_batch_size > 5:
+                    current_batch_size = max(5, current_batch_size // 2)
+                    print(f"  ↳ Reducing batch size to {current_batch_size}")
                 continue
+
+            consecutive_failures = 0
+            current_batch_size = batch_size
 
             for rating in ratings:
                 insert_event_rating(
@@ -587,9 +619,11 @@ class RatingAgent:
                     print(f"    ID {rating['event_id']}: {rating['rating']}/5 - {rating.get('reason', '')}")
 
             total_rated += len(ratings)
-            offset += len(events)
+            for e in new_events:
+                seen_ids.add(e['id'])
             if progress_callback:
                 progress_callback(total_rated)
+            time.sleep(3)
 
         # Update status if run_id is provided
         if self.run_id:
@@ -610,13 +644,17 @@ class RatingAgent:
         }
 
     def rate_events_batch(self, events: list[dict]) -> list[dict]:
+        ratings, _ = self.rate_events_batch_with_errors(events)
+        return ratings
+
+    def rate_events_batch_with_errors(self, events: list[dict]) -> tuple[list[dict], bool]:
         """Rate a batch of events using prompt mode (legacy).
 
         Args:
             events: List of event dicts with id, name, description, category, location, city, start_datetime
 
         Returns:
-            List of rating dicts with event_id, rating, and individual criteria
+            Tuple of (ratings list, auth_error bool)
         """
         events_serializable = []
         for event in events:
@@ -627,7 +665,7 @@ class RatingAgent:
 
         events_json = json.dumps(events_serializable, ensure_ascii=False, indent=2)
 
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 messages = self._prompt.format_messages(events_json=events_json)
                 response = self.llm.invoke(messages)
@@ -637,14 +675,21 @@ class RatingAgent:
                 validated_ratings = self._validate_ratings(ratings)
 
                 if validated_ratings:
-                    return validated_ratings
+                    return validated_ratings, False
                 else:
                     print(f"  ⚠ Attempt {attempt + 1}: No valid ratings parsed")
 
             except Exception as e:
                 print(f"  ⚠ Attempt {attempt + 1}: Error - {str(e)}")
+                if self._is_auth_error(e):
+                    return [], True
+                if self._is_rate_limit_error(e):
+                    wait = 30 * (attempt + 1)
+                    print(f"  ↳ Rate limited, waiting {wait}s before retry...")
+                    time.sleep(wait)
+                    continue
 
-        return []
+        return [], False
 
     @staticmethod
     def _parse_json_array(text: str) -> list[dict[str, Any]]:
@@ -664,10 +709,11 @@ class RatingAgent:
 
     # --- Simple mode (lightweight prompt for small Ollama models) ---
 
-    def rate_events_batch_simple(self, events: list[dict]) -> list[dict]:
-        """Rate up to 3 events using the simplified prompt (rating + reason only)."""
+    def rate_events_batch_simple(self, events: list[dict]) -> tuple[list[dict], bool]:
+        """Rate up to 3 events using the simplified prompt (rating + reason only).
+        Returns (ratings, auth_error)."""
         if not events:
-            return []
+            return [], False
 
         events_serializable = []
         for ev in events:
@@ -685,7 +731,7 @@ class RatingAgent:
                 events_json=json.dumps(events_serializable, ensure_ascii=False, indent=2)
             )
 
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 from langchain_core.messages import HumanMessage
                 response = self.llm.invoke([HumanMessage(content=prompt_text)])
@@ -693,11 +739,9 @@ class RatingAgent:
                 raw = response.content
 
                 parsed = self._parse_json_array(raw)
-                # Single-event response may come back as a dict, not a list
                 if isinstance(parsed, dict):
                     parsed = [parsed]
                 if not parsed and len(events_serializable) == 1:
-                    # Try parsing as single object
                     try:
                         obj = json.loads(raw.strip().strip("```json").strip("```").strip())
                         if isinstance(obj, dict):
@@ -705,7 +749,6 @@ class RatingAgent:
                     except json.JSONDecodeError:
                         pass
 
-                # Map to validated format (only rating + reason, no sub-criteria)
                 validated = []
                 for r in parsed:
                     event_id = r.get("event_id")
@@ -719,13 +762,20 @@ class RatingAgent:
                     })
 
                 if validated:
-                    return validated
+                    return validated, False
                 print(f"  ⚠ Attempt {attempt + 1}: No valid ratings parsed")
 
             except Exception as e:
                 print(f"  ⚠ Attempt {attempt + 1}: Error - {e}")
+                if self._is_auth_error(e):
+                    return [], True
+                if self._is_rate_limit_error(e):
+                    wait = 30 * (attempt + 1)
+                    print(f"  ↳ Rate limited, waiting {wait}s before retry...")
+                    time.sleep(wait)
+                    continue
 
-        return []
+        return [], False
 
     def _run_simple(
         self,
@@ -739,12 +789,14 @@ class RatingAgent:
         from storage import get_unrated_events, insert_event_rating
 
         filters = filters or {}
-        batch_size = min(batch_size, 3)  # hard cap
+        batch_size = min(batch_size, 3)
         total_rated = 0
         failed_events = []
-        offset = 0
+        seen_ids: set[int] = set()
+        consecutive_failures = 0
         self._total_input_tokens = 0
         self._total_output_tokens = 0
+        MAX_CONSECUTIVE_FAILURES = 5
 
         while True:
             if max_events and total_rated >= max_events:
@@ -753,7 +805,7 @@ class RatingAgent:
             limit = min(batch_size, max_events - total_rated) if max_events else batch_size
             events = get_unrated_events(
                 limit=limit,
-                offset=offset,
+                offset=0,
                 date_filter=filters.get("date_filter"),
                 days_filter=filters.get("days_filter"),
                 today_only=filters.get("today_only", False),
@@ -765,21 +817,34 @@ class RatingAgent:
             if not events:
                 break
 
+            new_events = [e for e in events if e['id'] not in seen_ids]
+            if not new_events:
+                break
+
             if verbose:
-                print(f"\n--- Batch {len(events)} events (offset {offset}) ---")
-                for ev in events:
+                print(f"\n--- Batch {len(new_events)} events ---")
+                for ev in new_events:
                     print(f"  ID {ev['id']}: {ev['name'][:50]}")
 
-            ratings = self.rate_events_batch_simple(events)
+            ratings, auth_error = self.rate_events_batch_simple(new_events)
+
+            if auth_error:
+                print(f"  ✖ Authentication error - aborting. Check API key.")
+                break
 
             if not ratings:
-                print(f"  ⚠ Batch failed, skipping {len(events)} events")
-                failed_events.extend([e["id"] for e in events])
-                offset += len(events)
-                total_rated += len(events)
-                if progress_callback:
-                    progress_callback(total_rated)
+                consecutive_failures += 1
+                print(f"  ⚠ Batch failed ({consecutive_failures}/{MAX_CONSECUTIVE_FAILURES} consecutive failures)")
+                failed_events.extend([e["id"] for e in new_events])
+                for e in new_events:
+                    seen_ids.add(e['id'])
+
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(f"  ✖ Too many consecutive failures - stopping.")
+                    break
                 continue
+
+            consecutive_failures = 0
 
             for rating in ratings:
                 insert_event_rating(
@@ -791,7 +856,7 @@ class RatingAgent:
                     rating_interaktion=None,
                     rating_kosten=None,
                     rating_reason=rating.get("reason", ""),
-                    user_email="ollama",
+                    user_email=self.model_name,
                 )
 
             if verbose:
@@ -799,7 +864,8 @@ class RatingAgent:
                     print(f"    ID {r['event_id']}: {r['rating']}/5 — {r.get('reason', '')}")
 
             total_rated += len(ratings)
-            offset += len(events)
+            for e in new_events:
+                seen_ids.add(e['id'])
             if progress_callback:
                 progress_callback(total_rated)
 
