@@ -659,7 +659,7 @@ The database has evolved from a simple event store to a complex system:
 4. **Added**: Pipeline tracking (`runs`, `status`, `raw_summaries`)
 5. **Added**: Supporting data (`locations`, city tables)
 
-**Note**: The foreign key constraint `event_ratings.event_id → events.id` is misleading. The actual usage is `event_ratings.event_id → events_distinct.id`. This should be corrected in a future migration.
+**Note**: The foreign key was migrated from `events.id` to `events_distinct.id` on 2026-05-05. The constraint `event_ratings_event_id_fkey` now correctly references `events_distinct(id)` with `ON DELETE CASCADE`.
 
 ---
 
